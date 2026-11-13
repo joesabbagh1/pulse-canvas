@@ -10,9 +10,12 @@ links is a loop, and its total length is the loop's duration.
 ```sh
 npm install
 npm run dev     # then open the printed localhost URL
+npm run deck    # MCP server, so an AI can play the open canvas
 npm test        # engine, geometry, Scala and save-format tests + render smoke tests
 npm run build   # typecheck + production bundle
 ```
+
+The deck listens on `127.0.0.1:4731`. Cursor starts it from `.cursor/mcp.json`. To run it yourself, use `npm run deck`, and only one of those at a time. Open the app, press Play once so the browser allows sound, and the Deck light in the bar comes on while the page is connected. Distance is time, so the deck plays by firing blocks, riding region mixes, and moving blocks.
 
 ## Play
 

@@ -479,6 +479,32 @@ button.share {
   background: #ffb86b;
 }
 
+.deck-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 1px solid var(--panel-border);
+  color: var(--muted);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.deck-status .status-dot {
+  background: var(--muted);
+  opacity: 0.45;
+}
+
+.deck-status.is-live {
+  color: var(--text);
+}
+
+.deck-status.is-live .status-dot {
+  background: #6be38a;
+  opacity: 1;
+}
+
 .loop-label {
   position: absolute;
   padding: 2px 8px;

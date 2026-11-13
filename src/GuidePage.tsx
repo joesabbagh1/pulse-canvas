@@ -239,12 +239,20 @@ const SECTIONS: Section[] = [
     id: 'live',
     title: 'Playing live',
     body: (
-      <p>
-        Select a <b>start</b> block or a <b>region</b> and give it a <b>performance key</b>: any letter or digit. While
-        playing, a start block's key sends out a pulse each time you press it, and a region's key mutes and unmutes it.
-        Keys show on the canvas and in the panel; with <b>● Rec</b> on, what you play is recorded. The panel at the
-        bottom left draws the whole mix, as a wave or as frequency bands.
-      </p>
+      <>
+        <p>
+          Select a <b>start</b> block or a <b>region</b> and give it a <b>performance key</b>: any letter or digit. While
+          playing, a start block's key sends out a pulse each time you press it, and a region's key mutes and unmutes it.
+          Keys show on the canvas and in the panel; with <b>● Rec</b> on, what you play is recorded. The panel at the
+          bottom left draws the whole mix, as a wave or as frequency bands.
+        </p>
+        <p>
+          <b>Deck</b> lets an AI play the open canvas. Cursor starts the deck for this project; otherwise run <code>npm run deck</code> beside the app. The Deck light in
+          the bar comes on when the page is connected. Press <b>Play</b> once so the browser allows sound. After that
+          the deck can start and stop, fire blocks, ride a region's mix, and move blocks. A link's length is how long a
+          pulse takes, so moving a block changes the rhythm while it plays.
+        </p>
+      </>
     ),
   },
   {

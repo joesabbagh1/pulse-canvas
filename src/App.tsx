@@ -14,6 +14,7 @@ import '@xyflow/react/dist/style.css';
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import { CanvasPage } from './CanvasPage';
 import { CanvasesPage } from './CanvasesPage';
+import { useDeck } from './deck/useDeck';
 import { Engine } from './engine/engine';
 import { ExamplesPage } from './ExamplesPage';
 import { InstrumentsPage } from './InstrumentsPage';
@@ -72,6 +73,7 @@ import { MAX_RECORD_SECONDS } from './engine/recorder';
 import { useHistory } from './history';
 import { datedName, decodeShare, download, encodeShare, pieceFromFile, pieceToFile, sharedCode, shareUrl } from './share';
 import { layoutTake, MAX_TAKES, type Take } from './takes';
+import * as Tone from 'tone';
 
 const SAMPLES_STAY = "Samples don't travel in links: whoever opens it hears the synth in their place. Save a file to send them too.";
 
@@ -881,6 +883,78 @@ function Studio() {
     wasWaves.current = onWaves;
   }, [route]);
 
+  const deck = useDeck({
+    snapshot: () => ({
+      canvasName,
+      bpm,
+      snap,
+      playing,
+      beat: playing ? stats.beat : 0,
+      blocks: nodes.filter(isBlock).map((node) => ({
+        id: node.id,
+        kind: node.data.kind,
+        degree: node.data.degree,
+        every: node.data.every,
+        ...(node.data.key ? { key: node.data.key } : {}),
+        ...(node.data.pattern !== undefined ? { pattern: node.data.pattern, beats: node.data.beats } : {}),
+        ...(node.data.code ? { hasCode: true } : {}),
+        x: node.position.x,
+        y: node.position.y,
+      })),
+      links: edges.map((edge) => ({
+        id: edge.id,
+        from: edge.source,
+        to: edge.target,
+        bends: bendsOf(edge),
+        ...(edge.data?.code ? { hasCode: true } : {}),
+      })),
+      regions: nodes.filter(isRegion).map((node) => ({
+        id: node.id,
+        name: node.data.name,
+        ...(node.data.key ? { key: node.data.key } : {}),
+        x: node.position.x,
+        y: node.position.y,
+        w: node.width ?? node.measured?.width ?? 0,
+        h: node.height ?? node.measured?.height ?? 0,
+        mix: node.data.mix,
+        fx: node.data.fx,
+        groove: node.data.groove,
+      })),
+    }),
+    play: async () => {
+      if (engine.playing) return;
+      await engine.play();
+      setPlaying(engine.playing);
+    },
+    stop: () => {
+      if (!engine.playing) return;
+      engine.stop();
+      setPlaying(false);
+    },
+    playing: () => engine.playing,
+    contextRunning: () => Tone.getContext().state === 'running',
+    setBpm,
+    fire: (id) => engine.fire(id),
+    patchRegion: (id, patch) =>
+      setNodes((current) =>
+        current.map((node) =>
+          node.id === id && isRegion(node)
+            ? {
+                ...node,
+                data: {
+                  ...node.data,
+                  ...(patch.mix ? { mix: { ...node.data.mix, ...patch.mix } } : {}),
+                  ...(patch.fx ? { fx: { ...node.data.fx, ...patch.fx } } : {}),
+                  ...(patch.groove ? { groove: { ...node.data.groove, ...patch.groove } } : {}),
+                },
+              }
+            : node,
+        ),
+      ),
+    moveBlock: (id, x, y) => setNodes((current) => current.map((node) => (node.id === id && isBlock(node) ? { ...node, position: { x, y } } : node))),
+    setLinkBends: (id, bends) => setEdges((current) => current.map((edge) => (edge.id === id ? { ...edge, data: { ...edge.data, bends } } : edge))),
+  });
+
   return (
     <SettingsContext.Provider value={settings}>
       <div className="app">
@@ -903,6 +977,7 @@ function Studio() {
           onRedo={redo}
           onShare={() => void share()}
           onClear={() => void newPiece()}
+          deck={deck}
         />
         <input
           ref={openFileRef}

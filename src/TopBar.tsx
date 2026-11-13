@@ -40,6 +40,8 @@ interface Props {
   onRedo: () => void;
   onShare: () => void;
   onClear: () => void;
+  /** Whether an AI deck is connected to this canvas. */
+  deck: 'idle' | 'live';
 }
 
 // Outside a canvas this is the app nav. Inside, it is that canvas's bar:
@@ -117,6 +119,13 @@ export function TopBar(props: Props) {
           <input type="checkbox" checked={snap} onChange={(e) => props.onSnap(e.target.checked)} />
           <span>Snap ¼</span>
         </label>
+        <span
+          className={`deck-status${props.deck === 'live' ? ' is-live' : ''}`}
+          title={props.deck === 'live' ? 'An AI can play this canvas.' : 'Start the deck server and an AI can play this canvas.'}
+        >
+          <span className="status-dot" />
+          Deck
+        </span>
       </div>
       )}
 

@@ -5,12 +5,14 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "deck": "node mcp/server.ts",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "@strudel/core": "1.2.6",
     "@strudel/mini": "1.2.6",
     "@ui-sdk/core": "^0.1.0-beta.1",
@@ -18,7 +20,8 @@
     "@xyflow/react": "^12.12.1",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
-    "tone": "^15.1.22"
+    "tone": "^15.1.22",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/react": "^19.3.0",
