@@ -1,5 +1,6 @@
-import { parse, patternifyAST, type MiniNode, type StrudelPattern } from '@strudel/mini';
+import { parse, patternifyAST, type Hap, type MiniNode, type StrudelPattern } from '@strudel/mini';
 import { instrumentById, type InstrumentId } from './instruments';
+import { SCALES, scaleById } from './tuning';
 
 // A pattern block's text is Strudel mini-notation (https://strudel.cc/learn/mini-notation/),
 // parsed and queried by Strudel's own engine. Only the notation is used: it is
@@ -45,10 +46,17 @@ export interface PatternNote {
   at: number;
   /** How long it lasts, as a fraction of the block's length. */
   span: number;
-  /** Always null: a pattern plays the block's instrument, never one named in the text. */
+  /** Null unless the pattern starts with `sound`: then this instrument plays the note. */
   kind: InstrumentId | null;
   /** Scale degrees above the block's pitch. A word with no number is 0. */
   degree: number;
+  /** Where it is written, so the sounding word can light up. Offsets into the pattern text. */
+  from?: number;
+  to?: number;
+  /** Set by `scale` at the start of the pattern. */
+  scaleId?: string;
+  /** Set by `octave` at the start of the pattern. */
+  octave?: number;
 }
 
 /** A change to how one pass plays, from the block's code. */
@@ -211,6 +219,91 @@ export function noteBound(source: string): number {
   }
 }
 
+const SCALE_ALIASES: Record<string, string> = {
+  major: 'major',
+  minor: 'minor-penta',
+  penta: 'major-penta',
+  pentatonic: 'major-penta',
+  rast: 'rast',
+  bayati: 'bayati',
+};
+
+/** A scale named the way a pattern may write it: an id, an alias, or its full name. */
+export function scaleNamed(word: string): string | null {
+  const needle = word.trim().toLowerCase();
+  if (SCALE_ALIASES[needle]) return SCALE_ALIASES[needle];
+  const found = SCALES.find((scale) => scale.id === needle || scale.name.toLowerCase() === needle);
+  return found ? scaleById(found.id).id : null;
+}
+
+export interface PatternHead {
+  scaleId?: string;
+  octave: number;
+  sound?: InstrumentId;
+  /** The mini-notation, once scale, octave and sound have been taken off the front. */
+  mini: string;
+  /** How many characters of `source` the header used. */
+  cut: number;
+  error: string | null;
+}
+
+/** `scale minor octave -1 sound piano` may lead the pattern. The rest is mini-notation. */
+export function readPatternHead(source: string): PatternHead {
+  let rest = source;
+  let cut = 0;
+  let scaleId: string | undefined;
+  let octave = 0;
+  let sound: InstrumentId | undefined;
+  let error: string | null = null;
+  for (;;) {
+    const scale = /^scale\s+(\S+)\s*/i.exec(rest);
+    if (scale) {
+      const id = scaleNamed(scale[1]);
+      if (!id) error = `"${scale[1]}" isn't a scale. Try major, minor, penta, rast or bayati.`;
+      else scaleId = id;
+      cut += scale[0].length;
+      rest = source.slice(cut);
+      continue;
+    }
+    const oct = /^octave\s+(-?\d+)\s*/i.exec(rest);
+    if (oct) {
+      const n = Number(oct[1]);
+      if (n < -8 || n > 8) error = '"octave" needs a whole number from -8 to 8.';
+      else octave += n;
+      cut += oct[0].length;
+      rest = source.slice(cut);
+      continue;
+    }
+    const named = /^sound\s+(\S+)\s*/i.exec(rest);
+    if (named) {
+      const id = soundNamed(named[1]);
+      if (!id) error = `"${named[1]}" isn't an instrument. Use its id, like tone, piano or bd.`;
+      else sound = id;
+      cut += named[0].length;
+      rest = source.slice(cut);
+      continue;
+    }
+    break;
+  }
+  if (!error && cut > 0 && !rest.trim()) error = 'It needs notes after scale, octave or sound.';
+  return { scaleId, octave, sound, mini: rest, cut, error };
+}
+
+interface Written {
+  from: number;
+  to: number;
+}
+
+function writtenAt(hap: Hap, cut: number): Written | null {
+  const locs = (hap as Hap & { context?: { locations?: { start: number; end: number }[] } }).context?.locations;
+  if (!locs?.length) return null;
+  let best = locs[0];
+  for (const loc of locs) if (loc.end > loc.start && loc.end - loc.start < best.end - best.start) best = loc;
+  if (!(best.end > best.start)) return null;
+  // Locations count into the quoted mini string, so the opening quote is one character.
+  return { from: best.start - 1 + cut, to: best.end - 1 + cut };
+}
+
 const SILENT: Pattern['notes'] = () => [];
 
 function failed(source: string, error: string): Pattern {
@@ -221,9 +314,12 @@ function build(source: string): Pattern {
   if (!source.trim()) return { source, error: null, notes: SILENT };
   if (source.length > MAX_PATTERN_CHARS) return failed(source, `It's longer than ${MAX_PATTERN_CHARS} characters.`);
   if (source.includes('"')) return failed(source, 'Leave the quotes out: write the pattern on its own.');
+  const head = readPatternHead(source);
+  if (head.error) return failed(source, head.error);
+  const mini = head.mini;
 
   // Strudel's parser reads the pattern as a quoted string.
-  const code = `"${source}"`;
+  const code = `"${mini}"`;
   let ast: MiniNode;
   let base: StrudelPattern;
   try {
@@ -275,7 +371,18 @@ function build(source: string): Pattern {
           const at = hap.whole.begin.valueOf() - cycle;
           if (at < from || at >= to) continue;
           const note = noteOf(hap.value);
-          if (note) out.push({ at, span: hap.whole.end.valueOf() - cycle - at, ...note });
+          const where = writtenAt(hap, head.cut);
+          if (note) {
+            out.push({
+              at,
+              span: hap.whole.end.valueOf() - cycle - at,
+              ...note,
+              ...(head.sound ? { kind: head.sound } : {}),
+              ...(head.scaleId ? { scaleId: head.scaleId } : {}),
+              ...(head.octave ? { octave: head.octave } : {}),
+              ...(where ? where : {}),
+            });
+          }
           if (out.length >= MAX_PATTERN_NOTES * 4) break;
         }
       } catch (err) {
@@ -321,4 +428,5 @@ export const PATTERN_REFERENCE: [string, string][] = [
   ['[bd,hh]', 'together'],
   ['0@3', 'three steps long'],
   ['hh?', 'half the time'],
+  ['scale minor octave -1 sound piano 0 2 4', 'a scale, an octave shift, and an instrument, written in front of the notes'],
 ];

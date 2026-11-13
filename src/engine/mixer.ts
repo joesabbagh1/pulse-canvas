@@ -162,6 +162,9 @@ const CANVAS = '';
 export class Mixer {
   /** Everything heard, after the limiter; recording taps it here. */
   readonly output = new Tone.Limiter(-1).toDestination();
+  /** Side taps of the mix. They are not in the path to the speakers. */
+  private wave = new Tone.Analyser('waveform', 1024);
+  private bands = new Tone.Analyser('fft', 512);
   private canvas = new Bus(this.output);
   private buses = new Map<string, Bus>();
   /**
@@ -171,7 +174,17 @@ export class Mixer {
   private live = new Voices(this.output);
 
   /** `samples` holds decoded samples by id; the engine fills it. */
-  constructor(private samples: ReadonlyMap<string, Tone.ToneAudioBuffer>) {}
+  constructor(private samples: ReadonlyMap<string, Tone.ToneAudioBuffer>) {
+    this.wave.smoothing = 0;
+    this.output.connect(this.wave);
+    this.output.connect(this.bands);
+  }
+
+  /** The mix, either as a waveform in -1..1 or as frequency bins in decibels. */
+  sample(kind: 'wave' | 'bands'): Float32Array {
+    const value = (kind === 'wave' ? this.wave : this.bands).getValue();
+    return value instanceof Float32Array ? value : new Float32Array(value[0] ?? []);
+  }
 
   /** Makes, updates and removes region buses to match `settings`, keyed by region id. */
   sync(settings: ReadonlyMap<string, BusSettings>, secondsPerBeat: number) {

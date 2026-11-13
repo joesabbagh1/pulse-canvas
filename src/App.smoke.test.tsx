@@ -117,6 +117,15 @@ describe('App', () => {
     expect(input.value).toBe('0*2 [~ 2] 4');
     expect(host.querySelector('.box-beats')!.textContent).toBe('2');
     expect(host.querySelectorAll('.box-strip rect').length).toBeGreaterThan(0);
+    expect(host.querySelector('.box-strip')?.getAttribute('aria-label')).toBe('Piano roll');
+    expect(host.querySelector('[aria-label="Mix drawing"]')).not.toBeNull();
+
+    await act(async () => host.querySelector<HTMLButtonElement>('button[title^="The same bars"]')!.click());
+    expect(host.querySelector('.box-strip')?.getAttribute('aria-label')).toBe('Wordfall');
+    await act(async () => host.querySelector<HTMLButtonElement>('button[title^="One turn"]')!.click());
+    expect(host.querySelector('.box-strip')?.getAttribute('aria-label')).toBe('Spiral');
+    await act(async () => host.querySelector<HTMLButtonElement>('button[title^="Where each note"]')!.click());
+    expect(host.querySelector('.box-strip')?.getAttribute('aria-label')).toBe('Pitch wheel');
 
     const proto = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!;
     await act(async () => {

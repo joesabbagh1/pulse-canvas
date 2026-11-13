@@ -18,6 +18,7 @@ import { LinkEdgeView, LinkPreview } from './canvas/LinkEdge';
 import { RegionNodeView } from './canvas/RegionNode';
 import { LoopLabels } from './canvas/LoopLabels';
 import { PulseLayer } from './canvas/PulseLayer';
+import { ScopePanel } from './canvas/ScopePanel';
 import { WaveLayer } from './canvas/WaveLayer';
 import type { Cycle } from './cycle';
 import type { Engine } from './engine/engine';
@@ -175,6 +176,9 @@ export function CanvasPage(props: Props) {
             onStamp={props.onStamp}
           />
           <ZoomControls />
+          <Panel position="bottom-left" className="scope-dock">
+            <ScopePanel engine={props.engine} />
+          </Panel>
           {props.playing && (
             <Panel position="top-left" className={`status${props.stats.overflow ? ' warn' : ''}`}>
               <span className="status-dot" aria-hidden="true" />

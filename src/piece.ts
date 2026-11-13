@@ -20,7 +20,21 @@ import { REGION_Z, regionAt } from './regions';
  * `pattern` makes it a pattern block: a box `beats` long that plays the
  * pattern across its length each time a pulse goes through (see engine/pattern.ts).
  */
-export type BlockData = { kind: BlockKind; degree: number; every: number; code?: string; key?: string; pattern?: string; beats?: number };
+/** How a pattern box draws its notes. `roll` is the default and is not stored. */
+export type PatternFigure = 'roll' | 'fall' | 'spiral' | 'wheel';
+
+export type BlockData = {
+  kind: BlockKind;
+  degree: number;
+  every: number;
+  code?: string;
+  key?: string;
+  pattern?: string;
+  beats?: number;
+  figure?: PatternFigure;
+  /** Pattern blocks: 0 to 1, how loud the pattern is. Unset is full. */
+  level?: number;
+};
 export type BlockNode = Node<BlockData, 'block'>;
 /**
  * A rectangle of canvas with its own tuning, mix, effects, groove and sample,
@@ -107,14 +121,21 @@ export function regionNode(id: string, rect: { x: number; y: number; w: number; 
 export function toNodes(piece: Piece): CanvasNode[] {
   return [
     ...piece.regions.map(({ id, x, y, w, h, ...data }) => regionNode(id, { x, y, w, h }, data)),
-    ...piece.blocks.map(({ id, x, y, kind, degree, every, code, key, pattern, beats }): BlockNode => {
+    ...piece.blocks.map(({ id, x, y, kind, degree, every, code, key, pattern, beats, figure, level }): BlockNode => {
       const data = {
         kind,
         degree,
         every,
         ...(code ? { code } : {}),
         ...(key ? { key } : {}),
-        ...(pattern !== undefined ? { pattern, beats: spanOf({ pattern, beats }) } : {}),
+        ...(pattern !== undefined
+          ? {
+              pattern,
+              beats: spanOf({ pattern, beats }),
+              ...(figure && figure !== 'roll' ? { figure } : {}),
+              ...(typeof level === 'number' && level < 1 ? { level } : {}),
+            }
+          : {}),
       };
       return { id, type: 'block', position: { x, y }, data, ...(patternFrame(data) ?? {}) };
     }),

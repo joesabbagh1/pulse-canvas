@@ -7,7 +7,7 @@ import { CATEGORIES, instrumentById, instrumentsIn } from './engine/instruments'
 import { hasPitch, type BlockKind } from './engine/scheduler';
 import { describePitch, type Scale, type Tuning } from './engine/tuning';
 import type { WaveRole } from './engine/wave';
-import type { BlockData, BlockNode, RegionData, RegionNode } from './piece';
+import type { BlockData, BlockNode, PatternFigure, RegionData, RegionNode } from './piece';
 import { RegionInspector } from './RegionInspector';
 import { blockColor, useSettings } from './settings';
 import { Select } from './ui/Select';
@@ -219,9 +219,11 @@ export function Inspector(props: Props) {
         <PatternFields
           pattern={node.data.pattern}
           beats={spanOf(node.data)}
+          figure={node.data.figure ?? 'roll'}
           snap={snap}
-          onPattern={(pattern) => set(pattern === undefined ? { pattern: undefined, beats: undefined } : { pattern, beats: spanOf({ pattern, beats: node.data.beats }) })}
+          onPattern={(pattern) => set(pattern === undefined ? { pattern: undefined, beats: undefined, figure: undefined } : { pattern, beats: spanOf({ pattern, beats: node.data.beats }) })}
           onBeats={(beats) => set({ beats })}
+          onFigure={(figure) => set({ figure: figure === 'roll' ? undefined : figure })}
           starter={starterPattern(kind)}
         />
       )}
@@ -245,20 +247,31 @@ const EPS = 1e-6;
 // A link's length: type it ("1¾", "7/4", "1.75") or step it a quarter beat at
 // a time, and the link bends to fit. It can't get shorter than the straight
 // line between its blocks, so that's the floor, and the field says so.
+const FIGURES: { id: PatternFigure; label: string; hint: string }[] = [
+  { id: 'roll', label: 'Roll', hint: 'Bars. Time runs left to right and pitch runs up.' },
+  { id: 'fall', label: 'Fall', hint: 'The same bars stood on end, each one labeled with its degree.' },
+  { id: 'spiral', label: 'Spiral', hint: 'One turn of the spiral is one pass.' },
+  { id: 'wheel', label: 'Wheel', hint: 'Where each note sits in the octave.' },
+];
+
 function PatternFields({
   pattern,
   beats,
+  figure,
   snap,
   starter,
   onPattern,
   onBeats,
+  onFigure,
 }: {
   pattern: string | undefined;
   beats: number;
+  figure: PatternFigure;
   snap: boolean;
   starter: string;
   onPattern: (pattern: string | undefined) => void;
   onBeats: (beats: number) => void;
+  onFigure: (figure: PatternFigure) => void;
 }) {
   const on = pattern !== undefined;
   const error = on ? compilePattern(pattern).error : null;
@@ -294,6 +307,13 @@ function PatternFields({
             onSet={(next) => onBeats(snap ? Math.round(next / GRID) * GRID : next)}
             hint="How long a pulse takes to cross the box. Drag its right edge, or type a length."
           />
+          <div className="segmented" role="group" aria-label="Pattern drawing">
+            {FIGURES.map((item) => (
+              <button key={item.id} className={figure === item.id ? 'is-on' : ''} aria-pressed={figure === item.id} title={item.hint} onClick={() => onFigure(item.id)}>
+                {item.label}
+              </button>
+            ))}
+          </div>
           {error ? (
             <span className="warn">{error}</span>
           ) : (

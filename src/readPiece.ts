@@ -8,7 +8,7 @@ import type { BlockKind } from './engine/scheduler';
 import { instrumentById } from './engine/instruments';
 import { DEFAULT_SCALE_ID, ROOT_HZ, type Scale } from './engine/tuning';
 import { MAX_WAVE_POINTS, type WaveRole } from './engine/wave';
-import type { Piece } from './piece';
+import type { PatternFigure, Piece } from './piece';
 import { MAX_TAKE_BEATS, MAX_TAKE_NOTES, MAX_TAKES, type Take, type TakeNote } from './takes';
 
 // Every piece that comes in — from this browser's storage, a file, or a shared
@@ -32,6 +32,10 @@ function num(v: unknown, min: number, max: number, fallback: number) {
 const int = (v: unknown, min: number, max: number, fallback: number) => Math.round(num(v, min, max, fallback));
 const id = (v: unknown) => (typeof v === 'string' && v.length > 0 && v.length <= LIMITS.id ? v : null);
 const point = (v: unknown) => (isObject(v) ? { x: num(v.x, -FAR, FAR, 0), y: num(v.y, -FAR, FAR, 0) } : null);
+/** `roll` is the default, so it is stored by leaving the field off. */
+function readFigure(v: unknown): PatternFigure | undefined {
+  return v === 'fall' || v === 'spiral' || v === 'wheel' ? v : undefined;
+}
 
 /** Keeps the first of each id; anything without a usable one is dropped. */
 function unique<T extends { id: string }>(items: (T | null)[]): T[] {
@@ -123,6 +127,8 @@ export function readPiece(raw: unknown): Piece {
       const code = text(v.code, LIMITS.code);
       // A start block only sends pulses out, so it can't hold a pattern.
       const pattern = typeof v.pattern === 'string' && v.kind !== 'start' ? v.pattern.slice(0, MAX_PATTERN_CHARS).replace(/\s+/g, ' ') : undefined;
+      const figure = pattern !== undefined ? readFigure(v.figure) : undefined;
+      const level = pattern !== undefined && typeof v.level === 'number' ? num(v.level, 0, 1, 1) : undefined;
       return {
         id: v.id as string,
         x: num(v.x, -FAR, FAR, 0),
@@ -132,7 +138,14 @@ export function readPiece(raw: unknown): Piece {
         every: num(v.every, 0, MAX_DELAY, 0),
         ...(code ? { code } : {}),
         ...(readKey(v.key) ? { key: readKey(v.key) } : {}),
-        ...(pattern !== undefined ? { pattern, beats: num(v.beats, MIN_SPAN, MAX_SPAN, spanOf({ pattern })) } : {}),
+        ...(pattern !== undefined
+          ? {
+              pattern,
+              beats: num(v.beats, MIN_SPAN, MAX_SPAN, spanOf({ pattern })),
+              ...(figure ? { figure } : {}),
+              ...(level !== undefined && level < 1 ? { level } : {}),
+            }
+          : {}),
       };
     }),
   );

@@ -192,8 +192,12 @@ const SECTIONS: Section[] = [
         </p>
         <p>
           Add one from the bar, or select a block and switch it from <b>Disc</b> to <b>Pattern</b>. <code>fast</code>,{' '}
-          <code>slow</code> and <code>rev</code> in its code change how that pass plays. The notation is parsed, never
-          run as JavaScript.
+          <code>slow</code> and <code>rev</code> in its code change how that pass plays, and the drawing follows. Under
+          the code it can be a <b>roll</b> of bars, the same roll stood on end, a <b>spiral</b>, or a <b>pitch wheel</b>.
+          The notation is parsed, never run as JavaScript. <code>scale minor</code>, <code>octave -1</code> and{' '}
+          <code>sound piano</code> can lead the line, and the level slider sets how loud it is. While it plays, the
+          sounding word lights up, and a small wave of that box's notes draws along its bottom. The mix panel can also
+          scroll a spectrogram. A shared piece still can't run its own drawing code or Hydra.
         </p>
       </>
     ),
@@ -236,7 +240,8 @@ const SECTIONS: Section[] = [
       <p>
         Select a <b>start</b> block or a <b>region</b> and give it a <b>performance key</b>: any letter or digit. While
         playing, a start block's key sends out a pulse each time you press it, and a region's key mutes and unmutes it.
-        Keys show on the canvas and in the panel; with <b>● Rec</b> on, what you play is recorded.
+        Keys show on the canvas and in the panel; with <b>● Rec</b> on, what you play is recorded. The panel at the
+        bottom left draws the whole mix, as a wave or as frequency bands.
       </p>
     ),
   },

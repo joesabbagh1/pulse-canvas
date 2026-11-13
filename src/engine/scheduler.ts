@@ -2,7 +2,7 @@ import { GRID, PARALLEL_OFFSET, PX_PER_BEAT, inPort, linkBeats, linkPath, outPor
 import { instrumentById, type InstrumentId } from './instruments';
 import { compilePattern, type Pattern, type PatternNote } from './pattern';
 import { PASS, compile, run, seededRandom, type Outcome, type Program, type RouteMode, type Target } from './script';
-import type { Tuning } from './tuning';
+import { scaleById, type Tuning } from './tuning';
 
 // The pulse model: a link is a path pulses travel along, and a block makes its
 // sound when a pulse reaches it, then sends a pulse down each outgoing link.
@@ -41,6 +41,8 @@ export interface GraphBlock extends Tuning {
   beats?: number;
   /** Name of the per-region bus it plays through; unset is the canvas bus. */
   bus?: string;
+  /** Pattern blocks: 0 to 1, how loud the pattern is. Unset is full. */
+  level?: number;
 }
 
 /** Voices that hold a note for as long as they're told to. Plucks, mallets and drums ring out on their own. */
@@ -48,11 +50,12 @@ const HELD_VOICES = new Set(['sustain', 'bow', 'blow', 'tone', 'bass', 'khuur'])
 
 /** The block as one note of its pattern plays it, and how long that note lasts. */
 export function patternHit(block: GraphBlock, note: PatternNote, span: number): { block: GraphBlock; length: number | null } {
-  const kind = block.kind;
-  const degree = block.degree + note.degree;
+  const kind = note.kind ?? block.kind;
+  const scale = note.scaleId ? scaleById(note.scaleId) : block.scale;
+  const degree = block.degree + note.degree + (note.octave ?? 0) * Math.max(1, scale.cents.length);
   // A held voice sounds for its step; anything struck or plucked keeps its own length.
   const held = kind !== 'start' && HELD_VOICES.has(instrumentById(kind)?.voice ?? '');
-  return { block: { ...block, kind, degree }, length: held ? note.span * span : null };
+  return { block: { ...block, kind, degree, scale }, length: held ? note.span * span : null };
 }
 
 export interface GraphLink {

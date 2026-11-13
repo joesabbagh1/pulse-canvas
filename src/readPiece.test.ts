@@ -91,6 +91,14 @@ describe('readPiece', () => {
     ]);
   });
 
+  it('keeps a pattern drawing and drops one it does not know', () => {
+    const piece = readPiece({
+      ...base,
+      blocks: [tone('a', { pattern: '0 2', beats: 2, figure: 'spiral' }), tone('b', { pattern: '0', beats: 1, figure: 'nope' })],
+    });
+    expect(piece.blocks.map((b) => b.figure)).toEqual(['spiral', undefined]);
+  });
+
   it('keeps one-letter performance keys and a clamped groove, and drops the rest', () => {
     const piece = readPiece({
       ...base,

@@ -2,9 +2,10 @@ import { Handle, Position, useReactFlow, type NodeProps } from '@xyflow/react';
 import { memo, useMemo, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { BOX_HEIGHT, GRID, MAX_SPAN, MIN_SPAN, PX_PER_BEAT, formatBeats, patternFrame, spanOf } from '../engine/geometry';
 import { instrumentById } from '../engine/instruments';
-import { compilePattern, type PatternNote } from '../engine/pattern';
-import { compile, type Target } from '../engine/script';
-import { describePitch, type Scale } from '../engine/tuning';
+import { PatternFigure, scaleSteps } from './figures';
+import { compilePattern } from '../engine/pattern';
+import { compile, run, type Target } from '../engine/script';
+import { describePitch } from '../engine/tuning';
 import { isBlock, type BlockNode, type CanvasNode, type LinkEdge } from '../piece';
 import { blockColor, useBlockTuning, useSettings } from '../settings';
 
@@ -71,12 +72,9 @@ function Disc({ id, data, selected }: NodeProps<BlockNode>) {
   );
 }
 
-const STRIP_HEIGHT = 26;
-
 // A pattern block is a box as wide as its length in beats. The pattern is
-// typed straight into it, and the strip underneath shows where each note of
-// the first pass falls, so the box reads left to right in time like a link
-// does. Pulses come in at the left edge and leave from the port on the right.
+// typed straight into it, and the drawing underneath is the figure chosen for
+// it. Pulses come in at the left edge and leave on the right.
 function PatternBox({ id, data, selected }: NodeProps<BlockNode>) {
   const { scale } = useBlockTuning(id);
   const { updateNodeData } = useReactFlow<CanvasNode, LinkEdge>();
@@ -85,7 +83,11 @@ function PatternBox({ id, data, selected }: NodeProps<BlockNode>) {
   const width = span * PX_PER_BEAT;
   const source = data.pattern ?? '';
   const pattern = useMemo(() => compilePattern(source), [source]);
-  const notes = useMemo(() => pattern.notes(0), [pattern]);
+  const shape = useMemo(() => {
+    const out = run(compile(data.code ?? '', 'block'), 1, () => 0);
+    return { fast: out.fast, rev: out.rev, transpose: out.transpose };
+  }, [data.code]);
+  const notes = useMemo(() => pattern.notes(0, 0, 1, shape), [pattern, shape]);
   const inst = data.kind === 'start' ? undefined : instrumentById(data.kind);
   const color = blockColor(data.kind, data.degree, scale);
 
@@ -102,60 +104,61 @@ function PatternBox({ id, data, selected }: NodeProps<BlockNode>) {
             ƒ
           </span>
         )}
+        <input
+          className="box-level nodrag nopan"
+          type="range"
+          min={0}
+          max={1}
+          step={0.01}
+          value={data.level ?? 1}
+          aria-label="Level"
+          title="How loud this pattern is"
+          onChange={(e) => {
+            const level = Math.min(1, Math.max(0, Number(e.target.value)));
+            updateNodeData(id, { level: level >= 0.999 ? undefined : level });
+          }}
+        />
         <span className="box-beats" title="Its length in beats: how long a pulse takes to cross it">
           {formatBeats(span, true)}
         </span>
       </div>
-      <input
-        className="box-text nodrag nopan"
-        type="text"
-        value={source}
-        placeholder="0 2 4"
-        spellCheck={false}
-        autoCapitalize="off"
-        autoComplete="off"
-        aria-label="Pattern"
-        aria-invalid={!!pattern.error}
-        onChange={(e) => updateNodeData(id, { pattern: e.target.value })}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === 'Escape') e.currentTarget.blur();
-        }}
-        onDoubleClick={(e) => e.stopPropagation()}
+      <div className="box-line">
+        <div className="box-mirror" aria-hidden="true">
+          <span className="box-before" />
+          <mark className="box-hit" />
+          <span className="box-after" />
+        </div>
+        <input
+          className="box-text nodrag nopan"
+          type="text"
+          value={source}
+          placeholder="0 2 4"
+          spellCheck={false}
+          autoCapitalize="off"
+          autoComplete="off"
+          aria-label="Pattern"
+          aria-invalid={!!pattern.error}
+          onChange={(e) => updateNodeData(id, { pattern: e.target.value })}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === 'Escape') e.currentTarget.blur();
+          }}
+          onDoubleClick={(e) => e.stopPropagation()}
+        />
+      </div>
+      <PatternFigure
+        figure={data.figure ?? 'roll'}
+        notes={notes}
+        width={width}
+        span={span}
+        color={color}
+        steps={scaleSteps(scale)}
+        root={data.degree + shape.transpose}
       />
-      <NoteStrip notes={notes} width={width} span={span} color={color} scale={scale} />
       <Resize id={id} span={span} />
       <span className="box-port box-in" aria-hidden="true" />
       <Handle type="source" position={Position.Right} className="box-port box-out" isConnectableEnd={false} title="Drag to link it on" />
       <Handle type="target" position={Position.Left} className="box-drop" isConnectableStart={false} />
     </div>
-  );
-}
-
-/** Where the notes of one pass fall across the box. */
-function NoteStrip({ notes, width, span, color, scale }: { notes: PatternNote[]; width: number; span: number; color: string; scale: Scale }) {
-  const lanes = useMemo(() => {
-    const own = [...new Set(notes.filter((n) => !n.kind).map((n) => n.degree))].sort((a, b) => b - a).map((d) => `d${d}`);
-    const named = [...new Set(notes.filter((n) => n.kind).map((n) => `${n.kind}:${n.degree}`))];
-    return [...own, ...named];
-  }, [notes]);
-  const lane = Math.min(7, STRIP_HEIGHT / Math.max(1, lanes.length));
-  const top = (STRIP_HEIGHT - lane * lanes.length) / 2;
-  const beats: number[] = [];
-  for (let b = 1; b < span; b++) beats.push(b);
-
-  return (
-    <svg className="box-strip" width={width} height={STRIP_HEIGHT} aria-hidden="true">
-      {beats.map((b) => (
-        <line key={b} className="box-beat" x1={b * PX_PER_BEAT} x2={b * PX_PER_BEAT} y1={0} y2={STRIP_HEIGHT} />
-      ))}
-      {notes.map((n, i) => {
-        const row = lanes.indexOf(n.kind ? `${n.kind}:${n.degree}` : `d${n.degree}`);
-        const x = n.at * width;
-        const w = Math.min(Math.max(3, n.span * width - 2), Math.max(0, width - x));
-        if (w <= 0) return null;
-        return <rect key={i} x={x} y={top + row * lane} width={w} height={Math.max(1.5, lane - 1)} fill={n.kind ? blockColor(n.kind, n.degree, scale) : color} />;
-      })}
-    </svg>
   );
 }
 

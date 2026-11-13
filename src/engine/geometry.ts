@@ -21,7 +21,7 @@ export interface XY {
 // time inside it too: a pulse goes in at the left edge, crosses the box while
 // the pattern plays, and comes out at the right edge. A plain block is a disc
 // with no length; links meet it at its centre.
-export const BOX_HEIGHT = 92;
+export const BOX_HEIGHT = 128;
 export const PORT_R = 7;
 export const MIN_SPAN = GRID;
 export const MAX_SPAN = 32;

@@ -32,6 +32,19 @@ describe('patterns', () => {
     expect(notes[0].span).toBeCloseTo(0.2);
   });
 
+  it('reads a scale, an octave and an instrument in front of the notes, and remembers where each note is written', () => {
+    const pattern = compilePattern('scale minor octave -1 sound piano 0 2');
+    const notes = pattern.notes(0);
+    expect(pattern.error).toBeNull();
+    expect(notes.map((n) => [n.degree, n.kind, n.scaleId, n.octave])).toEqual([
+      [0, 'piano', 'minor-penta', -1],
+      [2, 'piano', 'minor-penta', -1],
+    ]);
+    expect(pattern.source.slice(notes[0].from, notes[0].to)).toBe('0');
+    expect(pattern.source.slice(notes[1].from, notes[1].to)).toBe('2');
+    expect(compilePattern('scale nope 0').error).toMatch(/scale/);
+  });
+
   it('starts an instrument on its own pattern', () => {
     expect(starterPattern('kick')).toBe('0*2 ~ 0');
     expect(starterPattern('piano')).toBe('0*2 [~ 2] 4');

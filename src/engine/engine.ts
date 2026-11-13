@@ -5,8 +5,10 @@ import { HoldBook } from './holds';
 import { Mixer, type BusSettings } from './mixer';
 import { WavRecorder } from './recorder';
 import { loadSampleBytes } from './samples';
+import { Ear } from './ear';
 import { spanOf, type XY } from './geometry';
 import { compilePattern } from './pattern';
+import { degreeToHz } from './tuning';
 import { Scheduler, patternHit, type BlockKind, type GraphBlock, type GraphLink, type NoteShape } from './scheduler';
 import { busWavesKey, type BusWaves } from './wave';
 
@@ -32,6 +34,7 @@ export class Engine {
   readonly clock = new BeatClock(112);
   readonly scheduler = new Scheduler((block, beat, shift, shape, at) => this.hit(block, beat, shift, shape, at));
   flashes: Flash[] = [];
+  private readonly ear = new Ear();
 
   // Built lazily, since Tone nodes want a started context.
   private mixer: Mixer | null = null;
@@ -143,6 +146,7 @@ export class Engine {
 
   setGraph(blocks: GraphBlock[], links: GraphLink[]) {
     this.scheduler.setGraph(blocks, links, this.currentBeat());
+    this.ear.drop(new Set(blocks.filter((block) => block.pattern !== undefined).map((block) => block.id)));
   }
 
   /** Each region's mix, effects and sample, by region id. */
@@ -201,6 +205,16 @@ export class Engine {
     return this.playing ? this.clock.beatAt(this.audioNow()) : 0;
   }
 
+  /** The mix right now: a waveform in -1..1, or frequency bins in decibels. Null before audio has started. */
+  sample(kind: 'wave' | 'bands'): Float32Array | null {
+    return this.mixer?.sample(kind) ?? null;
+  }
+
+  /** The waveform of one pattern box, from the notes it has played. Null until it sounds. */
+  boxWave(id: string): Float32Array | null {
+    return this.ear.wave(id);
+  }
+
   /** The audio time reaching the speakers right now, for drawing in sync. */
   heardNow() {
     const raw = Tone.getContext().rawContext as unknown as AudioContext;
@@ -251,8 +265,18 @@ export class Engine {
     const groove = block.bus ? this.buses.get(block.bus)?.groove : undefined;
     const nudge = groove ? grooveNote(beat, groove, this.clock.secondsPerBeat) : { seconds: 0, velocity: 1 };
     const time = Math.max(this.clock.timeAt(beat) + nudge.seconds, this.audioNow() + 0.005);
-    const felt = { ...shape, velocity: shape.velocity * nudge.velocity };
-    this.mixer?.play({ ...block, degree: block.degree + shift }, time, this.clock.secondsPerBeat, felt);
+    const felt = { ...shape, velocity: shape.velocity * nudge.velocity * (block.level ?? 1) };
+    const sounding = { ...block, degree: block.degree + shift };
+    this.mixer?.play(sounding, time, this.clock.secondsPerBeat, felt);
+    if (block.pattern !== undefined) {
+      const hz = degreeToHz(sounding.degree, sounding.scale, sounding.rootHz);
+      const seconds = (shape.length ?? 0.15) * this.clock.secondsPerBeat;
+      try {
+        this.ear.ping(block.id, hz, time, seconds);
+      } catch {
+        // The scope is a drawing. A missing audio context must not stop the note.
+      }
+    }
     this.flashes.push({
       block: block.id,
       time,
