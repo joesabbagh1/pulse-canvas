@@ -54,6 +54,11 @@ function BlockView({ id, data, selected }: NodeProps<BlockNode>) {
     <div className={`block block-${data.kind}${selected ? ' is-selected' : ''}`} style={style}>
       <Handle type="source" position={Position.Right} className="block-ring" isConnectableEnd={false} />
       <div className="block-core">{label}</div>
+      {data.kind === 'start' && data.key && (
+        <kbd className="block-key" title={`Press ${data.key.toUpperCase()} to fire it`}>
+          {data.key.toUpperCase()}
+        </kbd>
+      )}
       {badge && (
         <span className={`block-code ${badge.className}`} title={badge.title}>
           ƒ

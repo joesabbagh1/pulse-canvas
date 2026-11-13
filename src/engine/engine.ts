@@ -1,5 +1,6 @@
 import * as Tone from 'tone';
 import { BeatClock } from './clock';
+import { grooveNote } from './groove';
 import { Mixer, type BusSettings } from './mixer';
 import { WavRecorder } from './recorder';
 import { loadSampleBytes } from './samples';
@@ -172,8 +173,12 @@ export class Engine {
 
   /** `shift` is the pulse's transposition, in scale degrees. */
   private hit(block: GraphBlock, beat: number, shift: number, shape: NoteShape) {
-    const time = Math.max(this.clock.timeAt(beat), this.audioNow() + 0.005);
-    this.mixer?.play({ ...block, degree: block.degree + shift }, time, this.clock.secondsPerBeat, shape);
-    this.flashes.push({ block: block.id, time, shown: false, strength: shape.velocity });
+    // The region's groove shifts the sound only; the pulse already arrived on the beat.
+    const groove = block.bus ? this.buses.get(block.bus)?.groove : undefined;
+    const nudge = groove ? grooveNote(beat, groove, this.clock.secondsPerBeat) : { seconds: 0, velocity: 1 };
+    const time = Math.max(this.clock.timeAt(beat) + nudge.seconds, this.audioNow() + 0.005);
+    const felt = { ...shape, velocity: shape.velocity * nudge.velocity };
+    this.mixer?.play({ ...block, degree: block.degree + shift }, time, this.clock.secondsPerBeat, felt);
+    this.flashes.push({ block: block.id, time, shown: false, strength: felt.velocity });
   }
 }

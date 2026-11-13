@@ -74,4 +74,16 @@ describe('readPiece', () => {
     expect(piece.regions[0].sample).toBeUndefined();
     expect(readPiece({ ...base, blocks: Array.from({ length: 5000 }, (_, i) => tone(`b${i}`)) }).blocks).toHaveLength(2000);
   });
+
+  it('keeps one-letter performance keys and a clamped groove, and drops the rest', () => {
+    const piece = readPiece({
+      ...base,
+      blocks: [tone('a', { kind: 'start', key: 'k' }), tone('b', { key: ' ' }), tone('c', { key: 'Enter' })],
+      regions: [{ id: 'r', key: '7', groove: { swing: 3, swingGrid: 0.25, humanize: -1 } }, { id: 's', groove: { swingGrid: 0.3 } }],
+    });
+    expect(piece.blocks.map((b) => b.key)).toEqual(['k', undefined, undefined]);
+    expect(piece.regions[0]).toMatchObject({ key: '7', groove: { swing: 1, swingGrid: 0.25, humanize: 0 } });
+    expect(piece.regions[1].groove).toEqual({ swing: 0, swingGrid: 0.5, humanize: 0 });
+  });
 });
+

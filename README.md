@@ -44,6 +44,13 @@ npm run build   # typecheck + production bundle
   starting with a tour of the features here.
 - Select a block to change its sound, pitch, or how often a start block fires.
 - Select a block or link to give it **code** (below).
+- With nothing selected, the panel lists every **loop** with its length, and
+  says when they all line up again (a 2-beat loop against a 3¾-beat one: every
+  30 beats). That's when the whole piece repeats; while playing, the status
+  shows which beat of that cycle you're on.
+- **Performance keys:** give a start block or a region a letter or digit. While
+  playing, a start block's key fires a pulse and a region's key mutes and
+  unmutes it, so you can play the canvas live (and record it with **● Rec**).
 - **⌘Z / Ctrl+Z** undoes and **⇧⌘Z / Ctrl+Shift+Z** (or Ctrl+Y) redoes, also from
   the ↶ ↷ buttons. Everything in the piece is undoable, including Clear and
   opening an example, file or link; selection isn't. A drag, a slider sweep or
@@ -77,6 +84,9 @@ Select a region (click its name tab) to set, for everything inside it:
 
 - **Key and scale**: its tuning.
 - **Mix**: level, pan and mute.
+- **Groove**: *Swing* on 8ths or 16ths (up to a full triplet feel) and
+  *Humanize* (small random shifts in timing and loudness). It moves when notes
+  sound, never when pulses arrive, so loops never drift out of time.
 - **Effects**: *Tone* (a low-pass filter, from dark to open), *Echo* (with its
   time in beats, so it follows the tempo) and *Reverb*. Double-click a slider to
   reset it.
@@ -124,6 +134,8 @@ a block or link with code is marked `ƒ`.
 | `src/engine/geometry.ts` | Pixels → beats (240 px = 1 beat), and links as polylines through their bends. |
 | `src/canvas/*` | React Flow blocks, links and regions, plus the pulse overlay. |
 | `src/piece.ts` | The saved JSON format (with regions and imported scales) and the tour patch. |
+| `src/cycle.ts` | When every loop lines up again: the whole piece's repeat length. |
+| `src/engine/groove.ts` | Swing and humanize, applied when a note is scheduled. |
 | `src/history.ts` | Undo and redo, over snapshots of the piece. |
 | `src/readPiece.ts` | Checks and repairs every piece that comes in: storage, files, links. |
 | `src/share.ts` | Share links (deflated JSON in the URL fragment) and saved files (with samples). |

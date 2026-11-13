@@ -2,6 +2,7 @@ import type { Edge, Node } from '@xyflow/react';
 import { BLOCK_SIZE, PX_PER_BEAT, type XY } from './engine/geometry';
 import { backbeat, phraseLoop } from './melody';
 import { DEFAULT_FX, DEFAULT_MIX, type BusSettings, type Fx, type Mix } from './engine/mixer';
+import { DEFAULT_GROOVE, type Groove } from './engine/groove';
 import type { SampleRef } from './engine/samples';
 import type { BlockKind, GraphBlock, GraphLink } from './engine/scheduler';
 import { DEFAULT_SCALE_ID, ROOT_HZ, scaleById, type Scale, type Tuning } from './engine/tuning';
@@ -12,12 +13,25 @@ import { REGION_Z, regionAt } from './regions';
 // the shape that gets saved, and later shared by link.
 
 /** `code` is a script run on each pulse through the block or link (see engine/script.ts). */
-export type BlockData = { kind: BlockKind; degree: number; every: number; code?: string };
+/** `key` is a performance key: pressing it fires the block (start blocks only). */
+export type BlockData = { kind: BlockKind; degree: number; every: number; code?: string; key?: string };
 export type BlockNode = Node<BlockData, 'block'>;
-/** A rectangle of canvas with its own tuning, mix, effects and sample, for the blocks inside it. */
-export type RegionData = { name: string; scaleId: string; rootHz: number; mix: Mix; fx: Fx; sample?: SampleRef };
-/** A region as written by hand or saved before mixes existed: mix and effects default. */
-export type RegionInit = Omit<RegionData, 'mix' | 'fx'> & { mix?: Mix; fx?: Partial<Fx> };
+/**
+ * A rectangle of canvas with its own tuning, mix, effects, groove and sample,
+ * for the blocks inside it. `key` is a performance key that mutes and unmutes it.
+ */
+export type RegionData = {
+  name: string;
+  scaleId: string;
+  rootHz: number;
+  mix: Mix;
+  fx: Fx;
+  groove: Groove;
+  sample?: SampleRef;
+  key?: string;
+};
+/** A region as written by hand or saved before mixes existed: mix, effects and groove default. */
+export type RegionInit = Omit<RegionData, 'mix' | 'fx' | 'groove'> & { mix?: Mix; fx?: Partial<Fx>; groove?: Partial<Groove> };
 export type RegionNode = Node<RegionData, 'region'>;
 export type CanvasNode = BlockNode | RegionNode;
 /** Bend points are canvas positions, in order from source to target. */
@@ -54,7 +68,12 @@ export const isRegion = (n: CanvasNode): n is RegionNode => n.type === 'region';
 // Regions sit behind everything and let clicks through to the canvas, except
 // on their name tab (which drags them) and their resize handles.
 export function regionNode(id: string, rect: { x: number; y: number; w: number; h: number }, init: RegionInit): RegionNode {
-  const data: RegionData = { ...init, mix: init.mix ?? DEFAULT_MIX, fx: { ...DEFAULT_FX, ...init.fx } };
+  const data: RegionData = {
+    ...init,
+    mix: init.mix ?? DEFAULT_MIX,
+    fx: { ...DEFAULT_FX, ...init.fx },
+    groove: { ...DEFAULT_GROOVE, ...init.groove },
+  };
   return {
     id,
     type: 'region',
@@ -72,11 +91,11 @@ export function regionNode(id: string, rect: { x: number; y: number; w: number; 
 export function toNodes(piece: Piece): CanvasNode[] {
   return [
     ...piece.regions.map(({ id, x, y, w, h, ...data }) => regionNode(id, { x, y, w, h }, data)),
-    ...piece.blocks.map(({ id, x, y, kind, degree, every, code }): BlockNode => ({
+    ...piece.blocks.map(({ id, x, y, kind, degree, every, code, key }): BlockNode => ({
       id,
       type: 'block',
       position: { x, y },
-      data: { kind, degree, every, ...(code ? { code } : {}) },
+      data: { kind, degree, every, ...(code ? { code } : {}), ...(key ? { key } : {}) },
     })),
   ];
 }
@@ -99,12 +118,13 @@ export function toPiece(nodes: CanvasNode[], edges: LinkEdge[], settings: Settin
   return {
     version: 1,
     ...settings,
-    blocks: nodes.filter(isBlock).map(({ id, position, data: { code, ...data } }) => ({
+    blocks: nodes.filter(isBlock).map(({ id, position, data: { code, key, ...data } }) => ({
       id,
       x: position.x,
       y: position.y,
       ...data,
       ...(code ? { code } : {}),
+      ...(key ? { key } : {}),
     })),
     regions: nodes.filter(isRegion).map((n) => ({
       id: n.id,
@@ -162,7 +182,9 @@ export function toGraph(nodes: CanvasNode[], canvas: Tuning, library: readonly S
 
 /** Each region's mix, effects and sample, for the engine. */
 export function toBuses(nodes: CanvasNode[]): Map<string, BusSettings> {
-  return new Map(nodes.filter(isRegion).map((r) => [r.id, { mix: r.data.mix, fx: r.data.fx, sample: r.data.sample?.id }]));
+  return new Map(
+    nodes.filter(isRegion).map((r) => [r.id, { mix: r.data.mix, fx: r.data.fx, groove: r.data.groove, sample: r.data.sample?.id }]),
+  );
 }
 
 export function toGraphLinks(edges: LinkEdge[]): GraphLink[] {

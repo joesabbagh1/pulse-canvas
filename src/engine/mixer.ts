@@ -1,4 +1,5 @@
 import * as Tone from 'tone';
+import type { Groove } from './groove';
 import type { GraphBlock, NoteShape } from './scheduler';
 import { Voices } from './voices';
 
@@ -32,6 +33,8 @@ export interface BusSettings {
   fx: Fx;
   /** A stored sample (see samples.ts) for this bus's tones to play. */
   sample?: string;
+  /** Applied by the engine when it schedules a note, not by the mixer. */
+  groove?: Groove;
 }
 
 export const DEFAULT_MIX: Mix = { level: 0, pan: 0, mute: false };

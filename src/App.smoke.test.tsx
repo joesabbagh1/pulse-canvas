@@ -558,4 +558,65 @@ describe('App', () => {
       act(() => root.unmount());
     });
   });
+
+  describe('repeats, performance keys and groove', () => {
+    const setText = (el: HTMLInputElement, text: string) =>
+      act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(el, text);
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+    const clickNode = (host: Element, selector: string) =>
+      act(async () => host.querySelector(selector)!.closest('.react-flow__node')!.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    const press = (key: string) => act(async () => void window.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true })));
+
+    it('says when the whole piece repeats', async () => {
+      const { host, root } = await mount();
+      expect(host.querySelector('.cycle')!.textContent).toMatch(/Everything lines up again every \S+ beats, about .* at \d+ BPM/);
+      act(() => root.unmount());
+    });
+
+    it('a start block key fires it while playing, and a region key mutes the region', async () => {
+      vi.spyOn(Engine.prototype, 'playing', 'get').mockReturnValue(true);
+      const fire = vi.spyOn(Engine.prototype, 'fire').mockImplementation(() => {});
+      const { host, root } = await mount();
+
+      await clickNode(host, '.block-start');
+      await setText(host.querySelector<HTMLInputElement>('input[aria-label="Performance key"]')!, 'k');
+      expect(host.querySelector('.block-key')!.textContent).toBe('K');
+
+      await clickNode(host, '.region-tab');
+      // K is taken by the start block, so the region can't have it.
+      await setText(host.querySelector<HTMLInputElement>('input[aria-label="Performance key"]')!, 'k');
+      expect(host.querySelector('.inspector .warn')!.textContent).toBe('K already fires a start block.');
+      await setText(host.querySelector<HTMLInputElement>('input[aria-label="Performance key"]')!, 'm');
+      expect(host.querySelector('.region-key')!.textContent).toBe('M');
+
+      (document.activeElement as HTMLElement | null)?.blur();
+      await press('k');
+      expect(fire).toHaveBeenCalledTimes(1);
+      await press('m');
+      expect(host.querySelector('.region')!.className).toContain('is-muted');
+      await press('m');
+      expect(host.querySelector('.region')!.className).not.toContain('is-muted');
+
+      await act(() => new Promise((r) => setTimeout(r, 450)));
+      const saved = JSON.parse(localStorage.getItem('pulse-canvas:piece:v1')!);
+      expect(saved.blocks.find((b: { kind: string }) => b.kind === 'start').key).toBe('k');
+      expect(saved.regions[0].key).toBe('m');
+      act(() => root.unmount());
+    });
+
+    it('sets a region groove and saves it', async () => {
+      const { host, root } = await mount();
+      await clickNode(host, '.region-tab');
+      const swing = host.querySelector<HTMLInputElement>('.inspector input[aria-label="Swing"]')!;
+      await setText(swing, '0.6');
+      await act(async () => button(host, '16ths').click());
+      await act(() => new Promise((r) => setTimeout(r, 450)));
+      const saved = JSON.parse(localStorage.getItem('pulse-canvas:piece:v1')!);
+      expect(saved.regions[0].groove).toEqual({ swing: 0.6, swingGrid: 0.25, humanize: 0 });
+      act(() => root.unmount());
+    });
+  });
 });
+

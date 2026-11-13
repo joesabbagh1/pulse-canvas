@@ -1421,6 +1421,46 @@ input {
   margin-left: 4px;
 }
 
+/* A start block's performance key, at its lower right. */
+.block-key {
+  position: absolute;
+  right: -6px;
+  bottom: -4px;
+  z-index: 3;
+  min-width: 18px;
+  padding: 0 4px;
+  font-size: 10px;
+  line-height: 15px;
+  pointer-events: none;
+}
+
+.region-key {
+  font-size: 10px;
+  line-height: 13px;
+}
+
+.key-input {
+  width: 3em;
+  font: 600 15px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
+  text-align: center;
+  text-transform: uppercase;
+  color: var(--text);
+  background: var(--control);
+  border: 1px solid var(--control-border);
+  border-radius: 8px;
+  padding: 4px 6px;
+}
+
+.key-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.cycle {
+  margin: 4px 0 0;
+  line-height: 1.45;
+}
+
 /* ---------- regions ---------- */
 
 .region {

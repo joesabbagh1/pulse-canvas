@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { DEFAULT_GROOVE } from './engine/groove';
 import { DEFAULT_FX, DEFAULT_MIX, toneHz } from './engine/mixer';
 import { ROOT_HZ, SCALES, type Tuning } from './engine/tuning';
 import {
@@ -71,7 +72,7 @@ describe('regions and scales', () => {
   it('regions and imported scales survive a save and load', () => {
     const piece = toPiece(nodes, [], { bpm: 100, snap: true, scaleId: SCALES[0].id, rootHz: ROOT_HZ, scales: [imported] });
     expect(piece.regions).toEqual([
-      { id: 'r', x: -100, y: -100, w: 200, h: 200, name: 'R', scaleId: 'scl-test', rootHz: ROOT_HZ, mix: DEFAULT_MIX, fx: DEFAULT_FX },
+      { id: 'r', x: -100, y: -100, w: 200, h: 200, name: 'R', scaleId: 'scl-test', rootHz: ROOT_HZ, mix: DEFAULT_MIX, fx: DEFAULT_FX, groove: DEFAULT_GROOVE },
     ]);
     expect(piece.scales).toEqual([imported]);
     expect(toPiece(toNodes(piece), [], piece)).toEqual(piece);
@@ -117,7 +118,7 @@ describe('region mix and effects', () => {
       mix: { level: -6, pan: 0.5, mute: true },
       sample: { id: 'smp-1', name: 'bell.wav' },
     });
-    expect([...toBuses([r])]).toEqual([['r', { mix: { level: -6, pan: 0.5, mute: true }, fx: DEFAULT_FX, sample: 'smp-1' }]]);
+    expect([...toBuses([r])]).toEqual([['r', { mix: { level: -6, pan: 0.5, mute: true }, fx: DEFAULT_FX, groove: DEFAULT_GROOVE, sample: 'smp-1' }]]);
   });
 
   it('map the tone control from a dark 200 Hz to an open 20 kHz', () => {

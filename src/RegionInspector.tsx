@@ -1,13 +1,19 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { formatBeats } from './engine/geometry';
+import { DEFAULT_GROOVE, type Groove } from './engine/groove';
 import { DEFAULT_FX, DEFAULT_MIX, MIN_LEVEL, toneHz, type Fx, type Mix } from './engine/mixer';
 import { loadSampleBytes } from './engine/samples';
 import { scaleById, type Scale } from './engine/tuning';
 import type { RegionData, RegionNode } from './piece';
+import { KeyField } from './KeyField';
 import { RootPicker, ScalePicker } from './ScalePicker';
 import { regionColor, useSettings } from './settings';
 
 const ECHO_TIMES = [0.25, 0.5, 0.75, 1];
+const SWING_GRIDS = [
+  { grid: 0.5, label: '8ths' },
+  { grid: 0.25, label: '16ths' },
+];
 
 const signed = (n: number) => `${n > 0 ? '+' : n < 0 ? '−' : ''}${Math.abs(n)}`;
 const percent = (v: number) => `${Math.round(v * 100)}%`;
@@ -52,6 +58,8 @@ function Slider({ label, value, min, max, step, reset, format, onChange }: Slide
 
 interface Props {
   region: RegionNode;
+  /** Performance keys already given to something else. */
+  takenKeys: ReadonlyMap<string, string>;
   onChange: (patch: Partial<RegionData>) => void;
   onImportScale: (scale: Scale) => void;
   onRemoveScale: (scaleId: string) => void;
@@ -59,11 +67,12 @@ interface Props {
   onDelete: () => void;
 }
 
-export function RegionInspector({ region, onChange, onImportScale, onRemoveScale, onLoadSample, onDelete }: Props) {
+export function RegionInspector({ region, takenKeys, onChange, onImportScale, onRemoveScale, onLoadSample, onDelete }: Props) {
   const { scales } = useSettings();
-  const { name, scaleId, rootHz, mix, fx, sample } = region.data;
+  const { name, scaleId, rootHz, mix, fx, groove, sample } = region.data;
   const setMix = (patch: Partial<Mix>) => onChange({ mix: { ...mix, ...patch } });
   const setFx = (patch: Partial<Fx>) => onChange({ fx: { ...fx, ...patch } });
+  const setGroove = (patch: Partial<Groove>) => onChange({ groove: { ...groove, ...patch } });
   const fileRef = useRef<HTMLInputElement>(null);
 
   // Samples live in this browser's storage, so a piece from elsewhere (or
@@ -130,6 +139,35 @@ export function RegionInspector({ region, onChange, onImportScale, onRemoveScale
         </div>
         <Slider label="Reverb" value={fx.reverb} min={0} max={1} step={0.01} reset={DEFAULT_FX.reverb} format={percent} onChange={(reverb) => setFx({ reverb })} />
       </div>
+
+      <div className="field">
+        <span className="field-label">Groove</span>
+        <Slider label="Swing" value={groove.swing} min={0} max={1} step={0.01} reset={DEFAULT_GROOVE.swing} format={percent} onChange={(swing) => setGroove({ swing })} />
+        <div className="slider">
+          <span className="slider-label">Swing on</span>
+          <div className="segmented" role="group" aria-label="Which notes swing">
+            {SWING_GRIDS.map(({ grid, label }) => (
+              <button key={grid} className={grid === groove.swingGrid ? 'is-on' : ''} onClick={() => setGroove({ swingGrid: grid })}>
+                {label}
+              </button>
+            ))}
+          </div>
+          <span className="value" />
+        </div>
+        <Slider
+          label="Humanize"
+          value={groove.humanize}
+          min={0}
+          max={1}
+          step={0.01}
+          reset={DEFAULT_GROOVE.humanize}
+          format={percent}
+          onChange={(humanize) => setGroove({ humanize })}
+        />
+        <span className="muted">Moves when notes sound, never when pulses arrive, so loops stay in time.</span>
+      </div>
+
+      <KeyField value={region.data.key} does="mutes and unmutes this region" taken={takenKeys} onChange={(key) => onChange({ key })} />
 
       <div className="field">
         <span className="field-label">Sample</span>

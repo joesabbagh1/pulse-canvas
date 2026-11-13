@@ -31,6 +31,7 @@ function RegionView({ data, selected }: NodeProps<RegionNode>) {
           </span>
         )}
         {data.mix.mute && <span className="region-flag">muted</span>}
+        {data.key && <kbd className="region-key">{data.key.toUpperCase()}</kbd>}
       </div>
     </div>
   );

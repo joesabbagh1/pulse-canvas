@@ -1,3 +1,4 @@
+import { DEFAULT_GROOVE, type Groove } from './engine/groove';
 import { DEFAULT_FX, DEFAULT_MIX, MIN_LEVEL, type Fx, type Mix } from './engine/mixer';
 import type { SampleRef } from './engine/samples';
 import { MAX_DELAY } from './engine/script';
@@ -60,6 +61,18 @@ function readFx(v: unknown): Fx {
   };
 }
 
+function readGroove(v: unknown): Groove {
+  const g = isObject(v) ? v : {};
+  return {
+    swing: num(g.swing, 0, 1, DEFAULT_GROOVE.swing),
+    swingGrid: g.swingGrid === 0.25 ? 0.25 : 0.5,
+    humanize: num(g.humanize, 0, 1, DEFAULT_GROOVE.humanize),
+  };
+}
+
+/** A performance key: one letter or digit. Anything else would clash with the app's own shortcuts. */
+const readKey = (v: unknown) => (typeof v === 'string' && /^[a-z0-9]$/.test(v) ? v : undefined);
+
 function readSample(v: unknown): SampleRef | undefined {
   if (!isObject(v) || typeof v.id !== 'string' || !/^smp-[0-9a-f]{1,64}$/.test(v.id)) return undefined;
   return { id: v.id, name: text(v.name) || 'sample' };
@@ -84,6 +97,7 @@ export function readPiece(raw: unknown): Piece {
         degree: int(v.degree, -200, 200, 0),
         every: num(v.every, 0, MAX_DELAY, 0),
         ...(code ? { code } : {}),
+        ...(readKey(v.key) ? { key: readKey(v.key) } : {}),
       };
     }),
   );
@@ -118,7 +132,9 @@ export function readPiece(raw: unknown): Piece {
         rootHz: num(v.rootHz, 20, 2000, rootHz),
         mix: readMix(v.mix),
         fx: readFx(v.fx),
+        groove: readGroove(v.groove),
         ...(sample ? { sample } : {}),
+        ...(readKey(v.key) ? { key: readKey(v.key) } : {}),
       };
     }),
   );

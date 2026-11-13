@@ -1,5 +1,6 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 import { CodeField } from './CodeField';
+import { KeyField } from './KeyField';
 import { GRID, formatBeats, parseLength } from './engine/geometry';
 import { hasPitch, type BlockKind } from './engine/scheduler';
 import { describePitch, type Scale, type Tuning } from './engine/tuning';
@@ -33,6 +34,8 @@ interface Props {
   onImportScale: (scale: Scale) => void;
   onRemoveScale: (scaleId: string) => void;
   onLoadSample: (regionId: string, file: File) => void;
+  /** Performance keys already given to something other than the selection. */
+  takenKeys: ReadonlyMap<string, string>;
   onFire: (id: string) => void;
   onStraighten: () => void;
   onDelete: () => void;
@@ -41,7 +44,7 @@ interface Props {
 export function Inspector(props: Props) {
   const { node, nodeTuning, region, link, playing, onChange, onLinkCode, onLinkLength, onRegionChange, onImportScale, onRemoveScale, onLoadSample } =
     props;
-  const { onFire, onStraighten, onDelete } = props;
+  const { onFire, onStraighten, onDelete, takenKeys } = props;
   const { snap } = useSettings();
 
   if (region) {
@@ -53,6 +56,7 @@ export function Inspector(props: Props) {
         onRemoveScale={onRemoveScale}
         onLoadSample={(file) => onLoadSample(region.id, file)}
         onDelete={onDelete}
+        takenKeys={takenKeys}
       />
     );
   }
@@ -133,6 +137,10 @@ export function Inspector(props: Props) {
           </div>
           <span className="muted">{every ? `every ${every} beats while playing` : 'once, when you press play'}</span>
         </div>
+      )}
+
+      {kind === 'start' && (
+        <KeyField value={node.data.key} does="fires this block while playing" taken={takenKeys} onChange={(key) => set({ key })} />
       )}
 
       <CodeField value={node.data.code ?? ''} target="block" onChange={(code) => set({ code })} />

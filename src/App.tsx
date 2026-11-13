@@ -24,7 +24,7 @@ import { LoopLabels } from './canvas/LoopLabels';
 import { RegionNodeView } from './canvas/RegionNode';
 import { Engine } from './engine/engine';
 import { ExamplesPage } from './ExamplesPage';
-import { BLOCK_SIZE, GRID, PX_PER_BEAT, fitLength, linkBeats, linkPath, type XY } from './engine/geometry';
+import { BLOCK_SIZE, GRID, PX_PER_BEAT, fitLength, formatBeats, linkBeats, linkPath, type XY } from './engine/geometry';
 import { isMelodic, type BlockKind } from './engine/scheduler';
 import { DEFAULT_SCALE_ID, SCALES, scaleById, type Scale, type Tuning } from './engine/tuning';
 import { GuidePage } from './GuidePage';
@@ -56,6 +56,7 @@ import {
   type Piece,
   type RegionData,
 } from './piece';
+import { pieceCycle } from './cycle';
 import { findLoops } from './loops';
 import { PiecePanel } from './PiecePanel';
 import { regionAt, regionContents } from './regions';
@@ -102,7 +103,7 @@ function Studio() {
   const [recording, setRecording] = useState(false);
   const [recordedSeconds, setRecordedSeconds] = useState(0);
   const openFileRef = useRef<HTMLInputElement>(null);
-  const [stats, setStats] = useState({ pulses: 0, overflow: false });
+  const [stats, setStats] = useState({ pulses: 0, overflow: false, beat: 0 });
   const [engine] = useState(() => new Engine());
   const { screenToFlowPosition, deleteElements, fitView } = useReactFlow<CanvasNode, LinkEdge>();
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -198,8 +199,10 @@ function Studio() {
     if (!playing) return;
     const timer = setInterval(() => {
       const pulses = engine.scheduler.inFlight();
-      const overflow = engine.scheduler.overflowBeat > engine.currentBeat() - 4;
-      setStats((s) => (s.pulses === pulses && s.overflow === overflow ? s : { pulses, overflow }));
+      const now = engine.currentBeat();
+      const overflow = engine.scheduler.overflowBeat > now - 4;
+      const beat = Math.floor(now);
+      setStats((s) => (s.pulses === pulses && s.overflow === overflow && s.beat === beat ? s : { pulses, overflow, beat }));
     }, 250);
     return () => clearInterval(timer);
   }, [engine, playing]);
@@ -584,9 +587,51 @@ function Studio() {
     { label: 'Copy share link', onSelect: () => void share() },
   ];
 
+  // Performance keys: a start block's fires it, a region's mutes and unmutes it.
+  const bindings = useMemo(
+    () =>
+      nodes.flatMap((n) => {
+        const key = n.data.key;
+        if (!key) return [];
+        if (isBlock(n)) return n.data.kind === 'start' ? [{ key, id: n.id, mute: false, does: 'fires a start block' }] : [];
+        return [{ key, id: n.id, mute: true, does: `mutes “${n.data.name || 'a region'}”` }];
+      }),
+    [nodes],
+  );
+  const takenKeys = useMemo(
+    () => new Map(bindings.filter((b) => b.id !== selectedNode?.id).map((b) => [b.key, b.does])),
+    [bindings, selectedNode?.id],
+  );
+
+  /** Plays a performance key. Returns false if nothing has that key. */
+  const perform = (key: string) => {
+    const binding = bindings.find((b) => b.key === key);
+    if (!binding) return false;
+    if (binding.mute) {
+      setNodes((ns) =>
+        ns.map((n) => (n.id === binding.id && isRegion(n) ? { ...n, data: { ...n.data, mix: { ...n.data.mix, mute: !n.data.mix.mute } } } : n)),
+      );
+    } else if (engine.playing) {
+      engine.fire(binding.id);
+    } else {
+      toast('info', `${key.toUpperCase()} fires a start block`, 'Press play first; then it sends out a pulse each time you press it.');
+    }
+    return true;
+  };
+
+  // When every loop, and every repeating start, lines up again.
+  const cycle = useMemo(
+    () =>
+      pieceCycle([
+        ...loops.map((l) => l.beats),
+        ...nodes.filter((n) => isBlock(n) && n.data.kind === 'start' && n.data.every > 0).map((n) => (n as BlockNode).data.every),
+      ]),
+    [loops, nodes],
+  );
+
   // Shortcuts that belong to the app rather than the canvas.
-  const shortcuts = useRef({ save, openFile: () => openFileRef.current?.click(), go, route });
-  shortcuts.current = { save, openFile: () => openFileRef.current?.click(), go, route };
+  const shortcuts = useRef({ save, openFile: () => openFileRef.current?.click(), go, route, perform });
+  shortcuts.current = { save, openFile: () => openFileRef.current?.click(), go, route, perform };
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (isTyping(e.target) || e.altKey) return;
@@ -596,7 +641,7 @@ function Studio() {
       else if ((e.metaKey || e.ctrlKey) && key === 'o') current.openFile();
       else if (e.key === '?' && !e.metaKey && !e.ctrlKey) current.go('guide');
       else if (e.key === 'Escape' && current.route !== 'canvas' && !document.querySelector('.confirm, .menu-list, .select-list')) current.go('canvas');
-      else return;
+      else if (e.metaKey || e.ctrlKey || e.repeat || !current.perform(key)) return;
       e.preventDefault();
     };
     window.addEventListener('keydown', onKeyDown);
@@ -680,6 +725,7 @@ function Studio() {
                 <Panel position="top-left" className={`status${stats.overflow ? ' warn' : ''}`}>
                   <span className="status-dot" aria-hidden="true" />
                   {stats.pulses} {stats.pulses === 1 ? 'pulse' : 'pulses'} in flight
+                  {cycle.kind === 'repeats' && ` · beat ${Math.floor(stats.beat % cycle.beats) + 1} of ${formatBeats(cycle.beats, true)}`}
                   {stats.overflow && ' · limit reached, extra pulses dropped'}
                 </Panel>
               )}
@@ -704,6 +750,7 @@ function Studio() {
                 onFire={(id) => engine.fire(id)}
                 onStraighten={straightenSelection}
                 onDelete={deleteSelection}
+                takenKeys={takenKeys}
               />
             ) : (
               <PiecePanel
@@ -711,6 +758,9 @@ function Studio() {
                 scaleId={scaleId}
                 counts={{ blocks: nodes.filter(isBlock).length, links: edges.length, regions: nodes.filter(isRegion).length }}
                 loops={loops}
+                cycle={cycle}
+                bpm={bpm}
+                bindings={bindings}
                 onRoot={setRootHz}
                 onScale={setScaleId}
                 onImportScale={importScale}

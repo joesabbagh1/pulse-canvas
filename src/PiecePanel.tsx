@@ -1,5 +1,6 @@
 import { formatBeats } from './engine/geometry';
 import type { Scale } from './engine/tuning';
+import { MAX_CYCLE_BEATS, type Cycle } from './cycle';
 import type { Loop } from './loops';
 import { RootPicker, ScalePicker } from './ScalePicker';
 import { useSettings } from './settings';
@@ -11,6 +12,9 @@ interface Props {
   scaleId: string;
   counts: { blocks: number; links: number; regions: number };
   loops: Loop[];
+  cycle: Cycle;
+  bpm: number;
+  bindings: { key: string; does: string }[];
   onRoot: (hz: number) => void;
   onScale: (scaleId: string) => void;
   onImportScale: (scale: Scale) => void;
@@ -27,8 +31,29 @@ const TIPS: [string, string][] = [
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
+function duration(seconds: number) {
+  if (seconds < 90) return `${Math.round(seconds)} s`;
+  const m = Math.floor(seconds / 60);
+  const s = Math.round(seconds % 60);
+  return s ? `${m} min ${s} s` : `${m} min`;
+}
+
+// Travel time only: code that counts passes or delays can stretch it, so say "about".
+function cycleText(cycle: Cycle, bpm: number) {
+  switch (cycle.kind) {
+    case 'repeats':
+      return `Everything lines up again every ${formatBeats(cycle.beats, true)} ${cycle.beats === 1 ? 'beat' : 'beats'}, about ${duration((cycle.beats * 60) / bpm)} at ${bpm} BPM: the whole piece repeats.`;
+    case 'drifts':
+      return 'With free timing the loops never line up exactly, so the piece never quite repeats.';
+    case 'too-long':
+      return `The loops only line up again after more than ${MAX_CYCLE_BEATS.toLocaleString()} beats: in practice the piece never repeats.`;
+    case 'none':
+      return '';
+  }
+}
+
 /** The sidebar with nothing selected: the piece as a whole. */
-export function PiecePanel({ rootHz, scaleId, counts, loops, onRoot, onScale, onImportScale, onRemoveScale }: Props) {
+export function PiecePanel({ rootHz, scaleId, counts, loops, cycle, bpm, bindings, onRoot, onScale, onImportScale, onRemoveScale }: Props) {
   const { canvas, snap } = useSettings();
   return (
     <div className="inspector">
@@ -62,7 +87,24 @@ export function PiecePanel({ rootHz, scaleId, counts, loops, onRoot, onScale, on
         ) : (
           <span className="muted">None yet. Link the last block back to the first and a pulse goes round it forever.</span>
         )}
+        {cycle.kind !== 'none' && <p className="cycle">{cycleText(cycle, bpm)}</p>}
       </div>
+
+      {bindings.length > 0 && (
+        <div className="field">
+          <span className="field-label">Performance keys</span>
+          <ul className="loop-list">
+            {[...bindings]
+              .sort((a, b) => a.key.localeCompare(b.key))
+              .map((b) => (
+                <li key={b.key}>
+                  <kbd>{b.key.toUpperCase()}</kbd>
+                  <span className="muted">{b.does}</span>
+                </li>
+              ))}
+          </ul>
+        </div>
+      )}
 
       <div className="field">
         <span className="field-label">Getting started</span>
@@ -74,6 +116,9 @@ export function PiecePanel({ rootHz, scaleId, counts, loops, onRoot, onScale, on
           ))}
           <li>
             <kbd>Space</kbd> plays · <kbd>{MOD}Z</kbd> undoes
+          </li>
+          <li>
+            <b>Give a key</b> to a start block or region to play it live
           </li>
         </ul>
         <a className="text-link" href={routeHref('guide')}>

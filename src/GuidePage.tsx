@@ -32,6 +32,11 @@ const SECTIONS: Section[] = [
           trip takes. Each loop shows its length (↻) on the canvas. Loops of different lengths drift against each other,
           which is where most of the music comes from.
         </p>
+        <p>
+          They come back into line after the least common multiple of their lengths: a 2-beat loop against a 3¾-beat
+          one lines up every 30 beats, and that's when the whole piece repeats. The panel says when, and while playing
+          the status shows which beat of that cycle you're on.
+        </p>
       </>
     ),
   },
@@ -104,7 +109,8 @@ const SECTIONS: Section[] = [
         </p>
         <p>
           A <b>region</b> gives part of the canvas its own key and scale, mix (level, pan, mute), effects (tone, echo,
-          reverb) and sample. A block belongs to the region its centre is in, so dragging it across a border retunes it.
+          reverb), groove (swing on 8ths or 16ths, and humanize) and sample. Groove moves when notes sound, never when
+          pulses arrive, so loops stay in time however much swing is on. A block belongs to the region its centre is in, so dragging it across a border retunes it.
           Adding a region wraps the selected blocks; drag its name tab to move it with everything inside.
         </p>
       </>
@@ -142,6 +148,17 @@ const SECTIONS: Section[] = [
     ),
   },
   {
+    id: 'live',
+    title: 'Playing live',
+    body: (
+      <p>
+        Select a <b>start</b> block or a <b>region</b> and give it a <b>performance key</b>: any letter or digit. While
+        playing, a start block's key sends out a pulse each time you press it, and a region's key mutes and unmutes it.
+        Keys show on the canvas and in the panel; with <b>● Rec</b> on, what you play is recorded.
+      </p>
+    ),
+  },
+  {
     id: 'files',
     title: 'Save, share and record',
     body: (
@@ -175,6 +192,7 @@ const SECTIONS: Section[] = [
             ['Backspace', 'Delete the selection'],
             ['?', 'This guide'],
             ['Esc', 'Back to the canvas'],
+            ['A–Z, 0–9', 'Performance keys you have given to start blocks and regions'],
           ].map(([k, does]) => (
             <tr key={k}>
               <td>
