@@ -1,0 +1,18 @@
+! khoomei_harmonics_8_16.scl
+!
+! Khoomei (Mongolian/Tuvan throat singing) works by filtering to single
+! harmonics of a sustained drone, so its melody scale is a segment of the
+! harmonic series. Harmonics 8 through 16 cover the range typically sung
+! above the fundamental: 8:9:10:11:12:13:14:15:16.
+!
+Khoomei harmonics 8-16
+8
+!
+9/8
+10/8
+11/8
+12/8
+13/8
+14/8
+15/8
+2/1
