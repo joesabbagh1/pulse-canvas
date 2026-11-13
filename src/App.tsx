@@ -15,6 +15,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as R
 import { CanvasPage } from './CanvasPage';
 import { CanvasesPage } from './CanvasesPage';
 import { useDeck } from './deck/useDeck';
+import type { DeckBlock } from './deck/scene';
 import { Engine } from './engine/engine';
 import { ExamplesPage } from './ExamplesPage';
 import { InstrumentsPage } from './InstrumentsPage';
@@ -84,6 +85,25 @@ const isTyping = (t: EventTarget | null) =>
 /** A block as the point links measure from: its centre, and how long its box is. */
 function spanPoint(node: CanvasNode): SpanPoint {
   return isBlock(node) ? { x: node.position.x, y: node.position.y, pattern: node.data.pattern, beats: node.data.beats } : node.position;
+}
+
+function blockFields(block: DeckBlock): BlockData {
+  return {
+    kind: block.kind as BlockKind,
+    degree: block.degree,
+    every: block.every,
+    ...(block.key ? { key: block.key } : {}),
+    ...(block.code ? { code: block.code } : {}),
+    ...(block.pattern !== undefined
+      ? {
+          pattern: block.pattern,
+          beats: spanOf(block),
+          ...(block.figure ? { figure: block.figure } : {}),
+          ...(typeof block.level === 'number' && block.level < 1 ? { level: block.level } : {}),
+          ...(typeof block.tone === 'number' && block.tone < 1 ? { tone: block.tone } : {}),
+        }
+      : {}),
+  };
 }
 
 export function App() {
@@ -890,14 +910,26 @@ function Studio() {
       snap,
       playing,
       beat: playing ? stats.beat : 0,
+      scaleId,
+      scaleName: scale.name,
+      rootHz,
+      scales: scales.map((item) => ({ id: item.id, name: item.name })),
       blocks: nodes.filter(isBlock).map((node) => ({
         id: node.id,
         kind: node.data.kind,
         degree: node.data.degree,
         every: node.data.every,
         ...(node.data.key ? { key: node.data.key } : {}),
-        ...(node.data.pattern !== undefined ? { pattern: node.data.pattern, beats: node.data.beats } : {}),
-        ...(node.data.code ? { hasCode: true } : {}),
+        ...(node.data.code ? { code: node.data.code } : {}),
+        ...(node.data.pattern !== undefined
+          ? {
+              pattern: node.data.pattern,
+              beats: node.data.beats,
+              ...(node.data.figure && node.data.figure !== 'roll' ? { figure: node.data.figure } : {}),
+              ...(typeof node.data.level === 'number' && node.data.level < 1 ? { level: node.data.level } : {}),
+              ...(typeof node.data.tone === 'number' && node.data.tone < 1 ? { tone: node.data.tone } : {}),
+            }
+          : {}),
         x: node.position.x,
         y: node.position.y,
       })),
@@ -906,11 +938,14 @@ function Studio() {
         from: edge.source,
         to: edge.target,
         bends: bendsOf(edge),
-        ...(edge.data?.code ? { hasCode: true } : {}),
+        ...(edge.data?.code ? { code: edge.data.code } : {}),
       })),
       regions: nodes.filter(isRegion).map((node) => ({
         id: node.id,
         name: node.data.name,
+        scaleId: node.data.scaleId,
+        scaleName: scaleById(node.data.scaleId, scales).name,
+        rootHz: node.data.rootHz,
         ...(node.data.key ? { key: node.data.key } : {}),
         x: node.position.x,
         y: node.position.y,
@@ -920,6 +955,14 @@ function Studio() {
         fx: node.data.fx,
         groove: node.data.groove,
       })),
+      waves: waves.map((wave) => ({
+        id: wave.id,
+        role: wave.role,
+        points: wave.points,
+        ...(wave.instrument ? { instrument: wave.instrument } : {}),
+      })),
+      recording,
+      takes,
     }),
     play: async () => {
       if (engine.playing) return;
@@ -953,6 +996,134 @@ function Studio() {
       ),
     moveBlock: (id, x, y) => setNodes((current) => current.map((node) => (node.id === id && isBlock(node) ? { ...node, position: { x, y } } : node))),
     setLinkBends: (id, bends) => setEdges((current) => current.map((edge) => (edge.id === id ? { ...edge, data: { ...edge.data, bends } } : edge))),
+    addBlock: (block) => {
+      const data = blockFields(block);
+      const frame = patternFrame(data);
+      const node: BlockNode = { id: block.id, type: 'block', position: { x: block.x, y: block.y }, data, ...(frame ?? {}) };
+      setNodes((current) => [...current, node]);
+    },
+    putBlock: (block) => {
+      const data = blockFields(block);
+      const frame = patternFrame(data);
+      setNodes((current) =>
+        current.map((node) => {
+          if (node.id !== block.id || !isBlock(node)) return node;
+          const { measured: _measured, width: _width, height: _height, ...rest } = node;
+          return frame
+            ? { ...rest, position: { x: block.x, y: block.y }, data, width: frame.width, height: frame.height }
+            : { ...rest, position: { x: block.x, y: block.y }, data };
+        }),
+      );
+    },
+    addLink: (link) =>
+      setEdges((current) => [
+        ...current,
+        { id: link.id, type: 'link', source: link.from, target: link.to, data: { bends: link.bends, ...(link.code ? { code: link.code } : {}) } },
+      ]),
+    putLink: (link) =>
+      setEdges((current) =>
+        current.map((edge) => (edge.id === link.id ? { ...edge, data: { bends: link.bends, ...(link.code ? { code: link.code } : {}) } } : edge)),
+      ),
+    addRegion: (region) => {
+      const node = regionNode(region.id, { x: region.x, y: region.y, w: region.w, h: region.h }, {
+        name: region.name,
+        scaleId: region.scaleId || scaleId,
+        rootHz: region.rootHz || rootHz,
+        mix: region.mix,
+        fx: region.fx,
+        groove: region.groove,
+        ...(region.key ? { key: region.key } : {}),
+      });
+      setNodes((current) => [...current, node]);
+    },
+    placeRegion: (region) => {
+      const current = nodes.find((node) => node.id === region.id);
+      if (!current || !isRegion(current)) return;
+      const dx = region.x - current.position.x;
+      const dy = region.y - current.position.y;
+      const moving = new Set(regionContents(nodes, current).map((node) => node.id));
+      const carried = new Set(waves.filter((wave) => regionAt([current], waveCenter(wave.points))).map((wave) => wave.id));
+      setNodes((list) =>
+        list.map((node) => {
+          if (node.id === region.id && isRegion(node)) {
+            const data = { ...node.data, name: region.name ?? node.data.name };
+            if (region.scaleId) data.scaleId = region.scaleId;
+            if (typeof region.rootHz === 'number') data.rootHz = region.rootHz;
+            if (region.key === null) delete data.key;
+            else if (region.key) data.key = region.key;
+            return { ...node, position: { x: region.x, y: region.y }, width: region.w, height: region.h, data };
+          }
+          if (moving.has(node.id)) return { ...node, position: { x: node.position.x + dx, y: node.position.y + dy } };
+          return node;
+        }),
+      );
+      if (dx || dy) {
+        setWaves((list) => list.map((wave) => (carried.has(wave.id) ? { ...wave, points: wave.points.map((point) => ({ x: point.x + dx, y: point.y + dy })) } : wave)));
+      }
+    },
+    drop: (gone) => {
+      const blocks = new Set(gone.blockIds);
+      const links = new Set(gone.linkIds);
+      const regions = new Set(gone.regionIds);
+      const goneWaves = new Set(gone.waveIds);
+      setNodes((list) => list.filter((node) => !blocks.has(node.id) && !regions.has(node.id)));
+      setEdges((list) => list.filter((edge) => !links.has(edge.id) && !blocks.has(edge.source) && !blocks.has(edge.target)));
+      setWaves((list) => list.filter((wave) => !goneWaves.has(wave.id)));
+    },
+    tune: (tuning) => {
+      if (tuning.scaleId) setScaleId(tuning.scaleId);
+      if (typeof tuning.rootHz === 'number') setRootHz(tuning.rootHz);
+      if (typeof tuning.snap === 'boolean') setSnap(tuning.snap);
+    },
+    addWave: (wave) => setWaves((list) => [...list, wave]),
+    putWave: (wave) => setWaves((list) => list.map((item) => (item.id === wave.id ? wave : item))),
+    playNotes: async ({ instrument, notes }) => {
+      if (Tone.getContext().state !== 'running') {
+        try {
+          await Tone.start();
+        } catch {
+          return 'Press Play in the browser once so it can make sound. After that, the deck can start and stop on its own.';
+        }
+      }
+      if (Tone.getContext().state !== 'running') return 'Press Play in the browser once so it can make sound. After that, the deck can start and stop on its own.';
+      const seconds = (60 / bpm) * 1000;
+      for (const note of notes) {
+        window.setTimeout(() => {
+          const id = engine.attack({ id: 'instrument', x: 0, y: 0, kind: instrument as BlockKind, degree: note.degree, every: 0, scale, rootHz }, note.velocity);
+          window.setTimeout(() => engine.release(id), note.beats * seconds);
+        }, note.at * seconds);
+      }
+      return null;
+    },
+    recordStart: async () => {
+      if (Tone.getContext().state !== 'running') {
+        try {
+          await Tone.start();
+        } catch {
+          return 'Press Play in the browser once so it can make sound. After that, the deck can record.';
+        }
+      }
+      if (Tone.getContext().state !== 'running') return 'Press Play in the browser once so it can make sound. After that, the deck can record.';
+      try {
+        await engine.startRecording();
+      } catch (err) {
+        return err instanceof Error ? err.message : "Couldn't start recording.";
+      }
+      setRecording(true);
+      setRecordedSeconds(0);
+      if (!engine.playing) {
+        await engine.play();
+        setPlaying(engine.playing);
+      }
+      return null;
+    },
+    recordStop: async () => {
+      const wav = await engine.stopRecording();
+      setRecording(false);
+      if (wav) download(wav, datedName('wav'));
+    },
+    saveTake,
+    placeTake,
   });
 
   return (

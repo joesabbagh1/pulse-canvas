@@ -32,8 +32,13 @@ export interface DeckBlock {
   degree: number;
   every: number;
   key?: string;
+  code?: string;
   pattern?: string;
   beats?: number;
+  /** Anything but the default roll. */
+  figure?: 'fall' | 'spiral' | 'wheel';
+  level?: number;
+  tone?: number;
   hasCode?: boolean;
   /** Canvas pixels. */
   x: number;
@@ -45,13 +50,24 @@ export interface DeckLink {
   from: string;
   to: string;
   bends: { x: number; y: number }[];
+  code?: string;
   hasCode?: boolean;
+}
+
+export interface DeckWave {
+  id: string;
+  role: 'cycle' | 'motion';
+  points: { x: number; y: number }[];
+  instrument?: string;
 }
 
 export interface DeckRegion {
   id: string;
   name: string;
   key?: string;
+  scaleId?: string;
+  scaleName?: string;
+  rootHz?: number;
   x: number;
   y: number;
   w: number;
@@ -67,9 +83,18 @@ export interface DeckInput {
   snap: boolean;
   playing: boolean;
   beat: number;
+  /** The canvas tuning, outside every region. */
+  scaleId?: string;
+  scaleName?: string;
+  rootHz?: number;
+  /** Built-in scales plus any this piece imported. */
+  scales?: { id: string; name: string }[];
   blocks: DeckBlock[];
   links: DeckLink[];
   regions: DeckRegion[];
+  waves?: DeckWave[];
+  recording?: boolean;
+  takes?: { id: string; name: string; instrument: string; notes: { beat: number; degree: number; beats: number; velocity: number }[] }[];
 }
 
 export function blockName(kind: string) {
@@ -132,7 +157,22 @@ function regionLine(region: DeckRegion) {
   const swing = groove.swing <= 0 ? 'swing off' : `swing ${Math.round(groove.swing * 100)}% on ${groove.swingGrid === 0.25 ? '16ths' : '8ths'}`;
   const human = groove.humanize > 0 ? ` · humanize ${Math.round(groove.humanize * 100)}%` : '';
   const key = region.key ? ` · key ${region.key.toUpperCase()}` : '';
-  return `${region.name} (${region.id})${key} · ${mix.mute ? 'muted' : 'on'} · ${formatLevel(mix.level)} · ${formatPan(mix.pan)} · tone ${fx.tone >= 0.99 ? 'open' : `${Math.round(fx.tone * 100)}% open`} · ${echo} · reverb ${Math.round(fx.reverb * 100)}% · ${swing}${human}`;
+  const tuning = region.scaleName ? ` · ${region.scaleName}${region.rootHz ? ` · ${rootName(region.rootHz)}` : ''}` : '';
+  const box = ` · at ${place(region.x)}, ${place(region.y)} · ${place(region.w)} by ${place(region.h)}`;
+  return `${region.name} (${region.id})${tuning}${key} · ${mix.mute ? 'muted' : 'on'} · ${formatLevel(mix.level)} · ${formatPan(mix.pan)} · tone ${fx.tone >= 0.99 ? 'open' : `${Math.round(fx.tone * 100)}% open`} · ${echo} · reverb ${Math.round(fx.reverb * 100)}% · ${swing}${human}${box}`;
+}
+
+function rootName(hz: number) {
+  const cents = 1200 * Math.log2(hz / 261.6256);
+  const semis = Math.round(cents / 100);
+  const names = ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'];
+  if (Math.abs(cents - semis * 100) > 1) return `${Math.round(hz)} Hz`;
+  return names[((semis % 12) + 12) % 12];
+}
+
+function quote(text: string) {
+  const flat = text.replace(/\s+/g, ' ').trim();
+  return flat.length > 80 ? `${flat.slice(0, 77)}...` : flat;
 }
 
 function blockLine(input: DeckInput, block: DeckBlock) {
@@ -145,8 +185,12 @@ function blockLine(input: DeckInput, block: DeckBlock) {
     const text = block.pattern.replace(/\s+/g, ' ').trim();
     const shown = text.length > 60 ? `${text.slice(0, 57)}...` : text || 'empty';
     bits.push(`pattern "${shown}" over ${beatCount(spanOf(block))}`);
+    if (block.figure) bits.push(block.figure);
+    if (typeof block.level === 'number' && block.level < 1) bits.push(`level ${Math.round(block.level * 100)}%`);
+    if (typeof block.tone === 'number' && block.tone < 1) bits.push(`tone ${Math.round(block.tone * 100)}% open`);
   }
-  if (block.hasCode) bits.push('has code');
+  if (block.code) bits.push(`code "${quote(block.code)}"`);
+  else if (block.hasCode) bits.push('has code');
   const region = regionOf(input, block);
   bits.push(`at ${place(block.x)}, ${place(block.y)}`);
   bits.push(region ? `in ${region.name}` : 'on the canvas');
@@ -156,7 +200,7 @@ function blockLine(input: DeckInput, block: DeckBlock) {
 function linkLine(input: DeckInput, link: DeckLink) {
   const from = input.blocks.find((block) => block.id === link.from);
   const to = input.blocks.find((block) => block.id === link.to);
-  const code = link.hasCode ? ' · has code' : '';
+  const code = link.code ? ` · code "${quote(link.code)}"` : link.hasCode ? ' · has code' : '';
   return `${link.id} · ${from ? blockName(from.kind) : link.from} → ${to ? blockName(to.kind) : link.to} · ${beatCount(travelBeats(input, link))}${code}`;
 }
 
@@ -186,7 +230,8 @@ export function loopsOf(input: DeckInput) {
 /** The canvas as a player would want it read back. */
 export function renderScene(input: DeckInput): string {
   const state = input.playing ? `playing, beat ${input.beat}` : 'stopped';
-  const lines = [`${input.canvasName} · ${input.bpm} bpm · ${state}${input.snap ? ' · snap ¼' : ''}`];
+  const tuning = input.scaleName ? ` · ${input.scaleName}${input.rootHz ? ` · ${rootName(input.rootHz)}` : ''}` : '';
+  const lines = [`${input.canvasName} · ${input.bpm} bpm · ${state}${input.recording ? ' · recording' : ''}${input.snap ? ' · snap ¼' : ''}${tuning}`];
   const cycle = cycleLine(input);
   if (cycle) lines.push(cycle);
   lines.push('');
@@ -208,6 +253,24 @@ export function renderScene(input: DeckInput): string {
       const names = loop.blocks.map((id) => blockName(input.blocks.find((block) => block.id === id)?.kind ?? id));
       lines.push(`- ${names.join(' → ')} · ${beatCount(loop.beats)}`);
     }
+  }
+  const waves = input.waves ?? [];
+  if (waves.length) {
+    lines.push('');
+    lines.push('Waves (a cycle replaces a tone, a motion bends a filter; width is the loop):');
+    for (const wave of waves) {
+      const center = wave.points.reduce((sum, point) => ({ x: sum.x + point.x, y: sum.y + point.y }), { x: 0, y: 0 });
+      const at = { x: center.x / wave.points.length, y: center.y / wave.points.length };
+      const who = wave.instrument ? blockName(wave.instrument) : 'the region tone';
+      const width = Math.max(...wave.points.map((point) => point.x)) - Math.min(...wave.points.map((point) => point.x));
+      lines.push(`- ${wave.id} · ${wave.role} · ${who} · ${beatCount(width / PX_PER_BEAT)} wide · at ${place(at.x)}, ${place(at.y)}`);
+    }
+  }
+  const takes = input.takes ?? [];
+  if (takes.length) {
+    lines.push('');
+    lines.push('Takes (a recorded performance; place puts it on the canvas as linked blocks):');
+    for (const take of takes) lines.push(`- ${take.name} (${take.id}) · ${blockName(take.instrument)} · ${take.notes.length} ${take.notes.length === 1 ? 'note' : 'notes'}`);
   }
   lines.push('');
   lines.push('Right is +x. Down the canvas is +y. Moving a block changes how long its links take.');

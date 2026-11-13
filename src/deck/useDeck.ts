@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import type { XY } from '../engine/geometry';
 import { connectDeck, type DeckStatus } from './client';
-import { perform, type DeckEffect } from './plan';
-import type { DeckFx, DeckGroove, DeckInput, DeckMix } from './scene';
+import type { DeckEffect } from './effects';
+import { perform } from './plan';
+import type { DeckBlock, DeckFx, DeckGroove, DeckInput, DeckLink, DeckMix, DeckRegion, DeckWave } from './scene';
+import type { Take } from '../takes';
 
 const GESTURE = 'Press Play in the browser once so it can make sound. After that, the deck can start and stop on its own.';
 
@@ -17,6 +19,21 @@ export interface DeckHandlers {
   patchRegion: (id: string, patch: { mix?: Partial<DeckMix>; fx?: Partial<DeckFx>; groove?: Partial<DeckGroove> }) => void;
   moveBlock: (id: string, x: number, y: number) => void;
   setLinkBends: (id: string, bends: XY[]) => void;
+  addBlock: (block: DeckBlock) => void;
+  putBlock: (block: DeckBlock) => void;
+  addLink: (link: DeckLink) => void;
+  putLink: (link: DeckLink) => void;
+  addRegion: (region: DeckRegion) => void;
+  placeRegion: (region: Extract<DeckEffect, { type: 'placeRegion' }>) => void;
+  drop: (gone: { blockIds: string[]; linkIds: string[]; regionIds: string[]; waveIds: string[] }) => void;
+  tune: (tuning: { scaleId?: string; rootHz?: number; snap?: boolean }) => void;
+  addWave: (wave: DeckWave) => void;
+  putWave: (wave: DeckWave) => void;
+  playNotes: (phrase: { instrument: string; notes: { degree: number; beats: number; at: number; velocity: number }[] }) => Promise<string | null>;
+  recordStart: () => Promise<string | null>;
+  recordStop: () => Promise<void>;
+  saveTake: (take: Take) => void;
+  placeTake: (take: Take) => void;
 }
 
 async function apply(handlers: DeckHandlers, effects: DeckEffect[]): Promise<string | null> {
@@ -37,7 +54,30 @@ async function apply(handlers: DeckHandlers, effects: DeckEffect[]): Promise<str
     } else if (effect.type === 'fire') handlers.fire(effect.id);
     else if (effect.type === 'region') handlers.patchRegion(effect.id, { mix: effect.mix, fx: effect.fx, groove: effect.groove });
     else if (effect.type === 'move') handlers.moveBlock(effect.id, effect.x, effect.y);
-    else handlers.setLinkBends(effect.id, effect.bends);
+    else if (effect.type === 'bends') handlers.setLinkBends(effect.id, effect.bends);
+    else if (effect.type === 'addBlock') handlers.addBlock(effect.block);
+    else if (effect.type === 'putBlock') handlers.putBlock(effect.block);
+    else if (effect.type === 'addLink') handlers.addLink(effect.link);
+    else if (effect.type === 'putLink') handlers.putLink(effect.link);
+    else if (effect.type === 'addRegion') handlers.addRegion(effect.region);
+    else if (effect.type === 'placeRegion') handlers.placeRegion(effect);
+    else if (effect.type === 'drop') handlers.drop(effect);
+    else if (effect.type === 'tune') handlers.tune(effect);
+    else if (effect.type === 'addWave') handlers.addWave(effect.wave);
+    else if (effect.type === 'putWave') handlers.putWave(effect.wave);
+    else if (effect.type === 'playNotes') {
+      const failed = await handlers.playNotes(effect);
+      if (failed) return failed;
+    } else if (effect.type === 'recordStart') {
+      const failed = await handlers.recordStart();
+      if (failed) return failed;
+    } else if (effect.type === 'recordStop') await handlers.recordStop();
+    else if (effect.type === 'saveTake') handlers.saveTake(effect.take);
+    else if (effect.type === 'placeTake') handlers.placeTake(effect.take);
+    else {
+      const unreachable: never = effect;
+      return `The canvas cannot apply ${unreachable}.`;
+    }
   }
   return null;
 }

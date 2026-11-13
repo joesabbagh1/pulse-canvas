@@ -247,10 +247,68 @@ const SECTIONS: Section[] = [
           bottom left draws the whole mix, as a wave or as frequency bands.
         </p>
         <p>
-          <b>Deck</b> lets an AI play the open canvas. Cursor starts the deck for this project; otherwise run <code>npm run deck</code> beside the app. The Deck light in
-          the bar comes on when the page is connected. Press <b>Play</b> once so the browser allows sound. After that
-          the deck can start and stop, fire blocks, ride a region's mix, and move blocks. A link's length is how long a
-          pulse takes, so moving a block changes the rhythm while it plays.
+          <b>Deck</b> lets an agent play the open canvas: start and stop, fire blocks, ride a region's mix, and move blocks.
+          It can also build the piece, play an instrument, record a WAV, and save that playing as a take. A link's length
+          is how long a pulse takes, so moving a block changes the rhythm while it plays. Connecting an agent is the next
+          section.
+        </p>
+      </>
+    ),
+  },
+  {
+    id: 'agents',
+    title: 'Agents',
+    body: (
+      <>
+        <p>
+          An agent reaches the open canvas through the <b>deck</b>, a small MCP server that ships with this project. The
+          page connects to it on this computer, at <code>127.0.0.1:4731</code>. Nothing is uploaded. You need Node 22.18
+          or newer, because the server file is TypeScript and Node runs it directly.
+        </p>
+        <h3>Cursor</h3>
+        <p>
+          This project already registers the server in <code>.cursor/mcp.json</code>:
+        </p>
+        <pre>
+          <code>{`{
+  "mcpServers": {
+    "pulse-canvas": {
+      "command": "node",
+      "args": ["mcp/server.ts"]
+    }
+  }
+}`}</code>
+        </pre>
+        <ol>
+          <li>Open this project in Cursor.</li>
+          <li>
+            In <b>Cursor Settings → MCP</b>, enable <b>pulse-canvas</b>. Cursor starts <code>node mcp/server.ts</code> from
+            the project folder.
+          </li>
+          <li>
+            Run <code>npm run dev</code> and open the printed localhost URL.
+          </li>
+          <li>
+            Press <b>Play</b> once, so the browser allows sound. After that the agent can start and stop on its own.
+          </li>
+          <li>
+            The <b>Deck</b> light in the bar comes on while this tab is connected. Ask the agent to look at the canvas.
+          </li>
+        </ol>
+        <p>
+          Leave <code>npm run deck</code> off while Cursor is running the server. Both listen on the same port, and the
+          second one will fail to start.
+        </p>
+        <h3>Another agent</h3>
+        <p>
+          Run <code>npm run deck</code> from this project and leave that terminal open. In the agent's MCP settings, add a
+          server named <code>pulse-canvas</code>. The command is <code>node</code>, the argument is the full path to{' '}
+          <code>mcp/server.ts</code>, and the working directory is this project when the path is relative. Then open the
+          app and press <b>Play</b> once, as above.
+        </p>
+        <p className="muted">
+          If the Deck light stays off, the page cannot see a server: the app is closed, the server is not running, or two
+          copies are using port 4731.
         </p>
       </>
     ),

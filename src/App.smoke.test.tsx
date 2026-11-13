@@ -658,6 +658,8 @@ describe('App', () => {
       await tick();
       expect(location.hash).toBe('#/guide');
       expect(host.querySelector('.guide-page h1')!.textContent).toBe('Guide');
+      expect(host.querySelector('#guide-agents h2')!.textContent).toBe('Agents');
+      expect(host.querySelector('#guide-agents')!.textContent).toContain('pulse-canvas');
       expect(host.querySelector('a.tab.is-active')!.textContent).toBe('Guide');
 
       await act(async () => void window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));

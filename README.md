@@ -15,7 +15,7 @@ npm test        # engine, geometry, Scala and save-format tests + render smoke t
 npm run build   # typecheck + production bundle
 ```
 
-The deck listens on `127.0.0.1:4731`. Cursor starts it from `.cursor/mcp.json`. To run it yourself, use `npm run deck`, and only one of those at a time. Open the app, press Play once so the browser allows sound, and the Deck light in the bar comes on while the page is connected. Distance is time, so the deck plays by firing blocks, riding region mixes, and moving blocks.
+The deck listens on `127.0.0.1:4731`. Cursor starts it from `.cursor/mcp.json`. To run it yourself, use `npm run deck`, and only one of those at a time. Open the app, press Play once so the browser allows sound, and the Deck light in the bar comes on while the page is connected. The deck can build the piece and play it: blocks, links, regions, waves, mixes, and moving a block changes the rhythm because distance is time.
 
 ## Play
 

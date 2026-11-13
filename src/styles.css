@@ -1843,6 +1843,31 @@ input {
   color: var(--accent);
 }
 
+.guide h3 {
+  margin: 18px 0 8px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.guide ol {
+  margin: 0 0 12px;
+  padding-left: 1.3em;
+}
+
+.guide pre {
+  margin: 8px 0 14px;
+  padding: 10px 12px;
+  overflow-x: auto;
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  font: 12.5px ui-monospace, SFMono-Regular, Menlo, monospace;
+  line-height: 1.45;
+}
+
+.guide pre code {
+  color: var(--text);
+}
+
 .guide-table {
   width: 100%;
   border-collapse: collapse;

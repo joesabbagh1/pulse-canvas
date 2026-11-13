@@ -16,20 +16,14 @@ import {
   type DeckMix,
   type DeckRegion,
 } from './scene';
+import { build } from './build';
+import { live } from './live';
+import type { DeckEffect, DeckPlan } from './effects';
+
+export type { DeckEffect, DeckPlan };
 
 const MAX_NUDGE = 32;
 const MAX_LINK = 64;
-
-export type DeckEffect =
-  | { type: 'play' }
-  | { type: 'stop' }
-  | { type: 'bpm'; bpm: number }
-  | { type: 'fire'; id: string }
-  | { type: 'region'; id: string; mix?: Partial<DeckMix>; fx?: Partial<DeckFx>; groove?: Partial<DeckGroove> }
-  | { type: 'move'; id: string; x: number; y: number }
-  | { type: 'bends'; id: string; bends: { x: number; y: number }[] };
-
-export type DeckPlan = { error: string } | { effects: DeckEffect[]; text: string };
 
 const norm = (value: string) => value.trim().toLowerCase();
 
@@ -54,7 +48,7 @@ export function findBlocks(input: DeckInput, ref: string): DeckBlock[] {
   });
 }
 
-function findRegions(input: DeckInput, ref: string): DeckRegion[] {
+export function findRegions(input: DeckInput, ref: string): DeckRegion[] {
   const query = norm(ref);
   if (!query) return [];
   const byId = input.regions.filter((region) => region.id === ref || norm(region.id) === query);
@@ -333,11 +327,20 @@ export function perform(input: DeckInput, command: unknown): DeckPlan {
   const record = asRecord(command);
   if (typeof record === 'string') return { error: record };
   const op = record.op;
-  if (op === 'look') return { effects: [], text: renderScene(input) };
+  if (op === 'look') {
+    return {
+      effects: [],
+      text: `${renderScene(input)}\n\nBuild with catalog, add_block, edit_block, link, edit_link, remove, add_region, edit_region, tune and wave. Play an instrument with play_instrument, record a WAV with record, and keep a performance with take. Perform the canvas with transport, hit, mix, nudge and stretch.`,
+    };
+  }
   if (op === 'transport') return transport(input, record);
   if (op === 'hit') return hit(input, record);
   if (op === 'mix') return mix(input, record);
   if (op === 'nudge') return nudge(input, record);
   if (op === 'stretch') return stretch(input, record);
-  return { error: 'Unknown move. Look, then play, hit, mix, nudge, or stretch.' };
+  const built = build(input, record);
+  if (built) return built;
+  const played = live(input, record);
+  if (played) return played;
+  return { error: 'Unknown move. Look, then build, play_instrument, record, take, or perform with transport, hit, mix, nudge and stretch.' };
 }
