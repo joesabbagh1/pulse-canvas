@@ -1,5 +1,6 @@
-import { GRID, PARALLEL_OFFSET, linkBeats, linkPath, type LinkPath, type XY } from './geometry';
+import { GRID, PARALLEL_OFFSET, PX_PER_BEAT, inPort, linkBeats, linkPath, outPort, portGap, spanOf, type LinkPath, type XY } from './geometry';
 import { instrumentById, type InstrumentId } from './instruments';
+import { compilePattern, type Pattern, type PatternNote } from './pattern';
 import { PASS, compile, run, seededRandom, type Outcome, type Program, type RouteMode, type Target } from './script';
 import type { Tuning } from './tuning';
 
@@ -7,6 +8,8 @@ import type { Tuning } from './tuning';
 // sound when a pulse reaches it, then sends a pulse down each outgoing link.
 // Code on a block or link can change that for each pulse: drop it, delay it,
 // transpose it, or pick which links it goes down (see script.ts).
+// A pattern block is a box with a length: a pulse reaching it plays one pass of
+// its pattern across that length, and only then goes on down its links.
 // This class is pure timing logic in beats. It never touches audio; whoever
 // owns it turns each hit into sound via the onHit callback.
 
@@ -32,8 +35,24 @@ export interface GraphBlock extends Tuning {
   /** Start blocks only: re-emit every N beats; 0 means once. */
   every: number;
   code?: string;
+  /** Mini-notation (see pattern.ts). Having one, even empty, makes this a pattern block. */
+  pattern?: string;
+  /** Pattern blocks only: how long one pass of the pattern lasts. */
+  beats?: number;
   /** Name of the per-region bus it plays through; unset is the canvas bus. */
   bus?: string;
+}
+
+/** Voices that hold a note for as long as they're told to. Plucks, mallets and drums ring out on their own. */
+const HELD_VOICES = new Set(['sustain', 'bow', 'blow', 'tone', 'bass', 'khuur']);
+
+/** The block as one note of its pattern plays it, and how long that note lasts. */
+export function patternHit(block: GraphBlock, note: PatternNote, span: number): { block: GraphBlock; length: number | null } {
+  const kind = block.kind;
+  const degree = block.degree + note.degree;
+  // A held voice sounds for its step; anything struck or plucked keeps its own length.
+  const held = kind !== 'start' && HELD_VOICES.has(instrumentById(kind)?.voice ?? '');
+  return { block: { ...block, kind, degree }, length: held ? note.span * span : null };
 }
 
 export interface GraphLink {
@@ -49,6 +68,27 @@ export interface LinkState extends LinkPath {
   source: string;
   target: string;
   beats: number;
+  /** How much of each end is hidden under its block, in pixels. */
+  gapStart: number;
+  gapEnd: number;
+}
+
+/** One pass of a pattern block, from the pulse going in to it coming out. */
+export interface Run {
+  block: string;
+  start: number;
+  end: number;
+  /** Which pass of the pattern this is: the block's pulse count, from 0. */
+  cycle: number;
+  shift: number;
+  velocity: number;
+  /** Note length from the block's code; null leaves each note its step. */
+  length: number | null;
+  fast: number;
+  rev: boolean;
+  /** Notes before this beat have been sent to onHit. */
+  cursor: number;
+  hits: number;
 }
 
 export interface Pulse {
@@ -76,6 +116,10 @@ export const PLAIN: Readonly<NoteShape> = { velocity: 1, length: null };
 interface Release extends NoteShape {
   mute: boolean;
   route: RouteMode;
+  fast: number;
+  rev: boolean;
+  /** Which pulse through the block this is, from 1. */
+  count: number;
 }
 
 interface Emission {
@@ -85,6 +129,8 @@ interface Emission {
   shift: number;
   /** Set for a delayed pulse: the block already ran its code and only has to sound and send. */
   release?: Release;
+  /** Set for a pulse coming out of a pattern block: it only has to go down these links. */
+  send?: RouteMode;
 }
 
 interface Compiled {
@@ -93,6 +139,9 @@ interface Compiled {
 }
 
 export const MAX_PULSES = 128;
+/** Patterns playing at once, and the notes one pass may send. */
+export const MAX_RUNS = 32;
+export const MAX_RUN_HITS = 512;
 // Pulses reaching the same block this close together merge into one hit, which
 // keeps branching graphs from multiplying pulses without bound.
 const COALESCE_BEATS = 0.02;
@@ -104,6 +153,8 @@ function nextMultiple(beat: number, step: number) {
 
 export class Scheduler {
   pulses: Pulse[] = [];
+  /** Pattern passes under way, kept until pruned so they can be drawn. */
+  runs: Run[] = [];
   playing = false;
   snap = true;
   /** Beat at which the pulse cap last dropped a pulse. */
@@ -118,6 +169,8 @@ export class Scheduler {
   private nextPulseId = 1;
   private blockCode = new Map<string, Compiled>();
   private linkCode = new Map<string, Compiled>();
+  /** Each pattern block's pattern: the last one that parsed, so a typo mid-edit doesn't silence it. */
+  private patterns = new Map<string, Pattern>();
   /** Pulses through each block and link so far, for "every N:". */
   private blockCounts = new Map<string, number>();
   private linkCounts = new Map<string, number>();
@@ -125,7 +178,8 @@ export class Scheduler {
   private turns = new Map<string, number>();
   private random = seededRandom(0);
 
-  constructor(private onHit: (block: GraphBlock, beat: number, shift: number, shape: NoteShape) => void) {}
+  /** `at` is where on the canvas the note is, for a note inside a pattern block. */
+  constructor(private onHit: (block: GraphBlock, beat: number, shift: number, shape: NoteShape, at?: XY) => void) {}
 
   block(id: string) {
     return this.blocks.get(id);
@@ -135,9 +189,11 @@ export class Scheduler {
     return this.links.get(id);
   }
 
+  /** Pulses on links, plus those crossing a pattern block. */
   inFlight() {
     let n = 0;
     for (const p of this.pulses) if (!p.handled) n++;
+    for (const e of this.emissions) if (e.send) n++;
     return n;
   }
 
@@ -147,6 +203,7 @@ export class Scheduler {
     this.graphLinks = links;
     this.blockCode = this.compileAll(blocks, 'block', this.blockCode);
     this.linkCode = this.compileAll(links, 'link', this.linkCode);
+    this.patterns = this.compilePatterns(blocks, this.patterns);
     this.rebuildLinks(nowBeat);
     if (this.playing) this.syncStarts(prev, nowBeat);
   }
@@ -170,6 +227,7 @@ export class Scheduler {
   stop() {
     this.playing = false;
     this.pulses = [];
+    this.runs = [];
     this.emissions = [];
     this.lastHit.clear();
     this.blockCounts.clear();
@@ -204,7 +262,8 @@ export class Scheduler {
         if (emission.repeating && block?.kind === 'start' && block.every > 0) {
           this.emissions.push({ ...emission, beat: emission.beat + block.every });
         }
-        if (emission.release) this.release(emission.block, emission.beat, emission.shift, emission.release);
+        if (emission.send) this.send(emission.block, emission.beat, emission.shift, emission.send);
+        else if (emission.release) this.release(emission.block, emission.beat, emission.shift, emission.release);
         else this.arrive(emission.block, emission.beat, emission.shift);
       } else if (pulse) {
         pulse.handled = true;
@@ -213,11 +272,13 @@ export class Scheduler {
         break;
       }
     }
+    this.playRuns(horizon);
   }
 
-  /** Forget pulses that finished arriving before `beat`. */
+  /** Forget pulses and pattern passes that finished before `beat`. */
   prune(beat: number) {
     this.pulses = this.pulses.filter((p) => !p.handled || p.arrive >= beat);
+    this.runs = this.runs.filter((r) => r.end >= beat);
   }
 
   private arrive(blockId: string, beat: number, shift: number) {
@@ -229,7 +290,8 @@ export class Scheduler {
 
     const out = this.runCode(this.blockCode, this.blockCounts, blockId);
     if (out.drop) return;
-    const release = { mute: out.mute, route: out.route, velocity: out.velocity, length: out.length };
+    const count = this.blockCounts.get(blockId) ?? 1;
+    const release = { mute: out.mute, route: out.route, velocity: out.velocity, length: out.length, fast: out.fast, rev: out.rev, count };
     shift = (out.shiftTo ?? shift) + out.transpose;
     if (out.delay > 0) {
       this.emissions.push({ block: blockId, beat: beat + out.delay, repeating: false, shift, release });
@@ -238,12 +300,60 @@ export class Scheduler {
     }
   }
 
-  /** The block sounds, and sends the pulse on down the links its code picked. */
-  private release(blockId: string, beat: number, shift: number, { mute, route, velocity, length }: Release) {
+  /**
+   * The block sounds, and sends the pulse on down the links its code picked. A
+   * pattern block starts a pass of its pattern, and sends the pulse on when
+   * that pass ends.
+   */
+  private release(blockId: string, beat: number, shift: number, release: Release) {
     const block = this.blocks.get(blockId);
     if (!block) return;
-    if (!mute) this.onHit(block, beat, shift, { velocity, length });
+    const { mute, route, velocity, length } = release;
+    const span = spanOf(block);
+    if (!span) {
+      if (!mute) this.onHit(block, beat, shift, { velocity, length });
+      this.send(blockId, beat, shift, route);
+      return;
+    }
+    if (!mute) {
+      if (this.runs.filter((r) => r.cursor < r.end).length >= MAX_RUNS) this.overflowBeat = beat;
+      else {
+        const { fast, rev, count } = release;
+        this.runs.push({ block: blockId, start: beat, end: beat + span, cycle: count - 1, shift, velocity, length, fast, rev, cursor: beat, hits: 0 });
+      }
+    }
+    this.emissions.push({ block: blockId, beat: beat + span, repeating: false, shift, send: route });
+  }
 
+  /** Sends every note of every pass under way that starts before `horizon`. */
+  private playRuns(horizon: number) {
+    for (const run of this.runs) {
+      if (run.cursor >= run.end) continue;
+      const block = this.blocks.get(run.block);
+      const pattern = this.patterns.get(run.block);
+      const until = Math.min(horizon, run.end);
+      if (!block || !pattern || run.hits >= MAX_RUN_HITS) {
+        run.cursor = run.end;
+        continue;
+      }
+      if (until <= run.cursor) continue;
+      // The pass keeps the length it started with, even if the box is resized under it.
+      const span = run.end - run.start;
+      const left = inPort(block, spanOf(block)).x;
+      const width = spanOf(block) * PX_PER_BEAT;
+      for (const note of pattern.notes(run.cycle, (run.cursor - run.start) / span, (until - run.start) / span, run)) {
+        if (run.hits++ >= MAX_RUN_HITS) break;
+        const hit = patternHit(block, note, span);
+        const shape = { velocity: run.velocity, length: run.length ?? hit.length };
+        this.onHit(hit.block, run.start + note.at * span, run.shift, shape, { x: left + note.at * width, y: block.y });
+      }
+      run.cursor = until;
+    }
+  }
+
+  /** A pulse leaves the block down the links `route` picks. */
+  private send(blockId: string, beat: number, shift: number, route: RouteMode) {
+    if (!this.blocks.has(blockId)) return;
     for (const linkId of this.route(blockId, route)) {
       if (this.inFlight() >= MAX_PULSES) {
         this.overflowBeat = beat;
@@ -292,6 +402,17 @@ export class Scheduler {
     return next;
   }
 
+  private compilePatterns(blocks: GraphBlock[], prev: Map<string, Pattern>) {
+    const next = new Map<string, Pattern>();
+    for (const { id, pattern: source } of blocks) {
+      if (source === undefined) continue;
+      const pattern = compilePattern(source);
+      const old = prev.get(id);
+      next.set(id, pattern.error && old && !old.error ? old : pattern);
+    }
+    return next;
+  }
+
   private rebuildLinks(nowBeat: number) {
     const straight = new Set(this.graphLinks.filter((l) => !l.bends?.length).map((l) => `${l.source}->${l.target}`));
     const next = new Map<string, LinkState>();
@@ -300,8 +421,10 @@ export class Scheduler {
       const a = this.blocks.get(l.source);
       const b = this.blocks.get(l.target);
       if (!a || !b) continue;
-      const path = linkPath(a, b, l.bends ?? [], straight.has(`${l.target}->${l.source}`) ? PARALLEL_OFFSET : 0);
-      next.set(l.id, { ...path, id: l.id, source: l.source, target: l.target, beats: linkBeats(path.len, this.snap) });
+      const [from, to] = [spanOf(a), spanOf(b)];
+      const path = linkPath(outPort(a, from), inPort(b, to), l.bends ?? [], straight.has(`${l.target}->${l.source}`) ? PARALLEL_OFFSET : 0);
+      const beats = linkBeats(path.len, this.snap);
+      next.set(l.id, { ...path, id: l.id, source: l.source, target: l.target, beats, gapStart: portGap(from), gapEnd: portGap(to) });
       const out = this.outgoing.get(l.source);
       if (out) out.push(l.id);
       else this.outgoing.set(l.source, [l.id]);

@@ -3,7 +3,8 @@ import type { XY } from './engine/geometry';
 // A closed circle of links is a loop, and its total length is how long one
 // trip round takes, which is what you compose with: a 2-beat drum loop against
 // a 3¾-beat melody. This finds the loops so the canvas can label them. It's
-// geometry only: delays in code aren't counted.
+// geometry only: delays in code aren't counted. A pattern block's length is,
+// because the pulse crosses the box before it leaves.
 //
 // A dense web of links can hold a huge number of loops, so the search stops
 // at MAX_LOOPS, at MAX_BLOCKS blocks per loop, and after MAX_STEPS steps.
@@ -27,7 +28,12 @@ export interface Loop {
 }
 
 /** Each loop once, starting from its earliest block in `positions`. */
-export function findLoops(positions: ReadonlyMap<string, XY>, links: readonly LoopLink[]): Loop[] {
+export function findLoops(
+  positions: ReadonlyMap<string, XY>,
+  links: readonly LoopLink[],
+  /** Beats a pulse spends crossing each block. Discs are absent, or 0. */
+  spans: ReadonlyMap<string, number> = new Map(),
+): Loop[] {
   const order = new Map([...positions.keys()].map((id, i) => [id, i]));
   const out = new Map<string, LoopLink[]>();
   for (const l of links) {
@@ -47,7 +53,8 @@ export function findLoops(positions: ReadonlyMap<string, XY>, links: readonly Lo
       for (const { target, beats: b } of out.get(block) ?? []) {
         if (++steps > MAX_STEPS || loops.length >= MAX_LOOPS) return;
         if (target === start) {
-          loops.push({ blocks: [...path], beats: beats + b, at: middle(path, positions) });
+          const crossed = path.reduce((sum, id) => sum + (spans.get(id) ?? 0), 0);
+          loops.push({ blocks: [...path], beats: beats + b + crossed, at: middle(path, positions) });
         } else if (order.get(target)! > first && !onPath.has(target) && path.length < MAX_BLOCKS) {
           path.push(target);
           onPath.add(target);

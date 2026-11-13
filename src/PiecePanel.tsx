@@ -11,23 +11,34 @@ interface Props {
   rootHz: number;
   scaleId: string;
   counts: { blocks: number; links: number; regions: number; waves: number };
+  /** The open canvas, from the list on the Canvases page. */
+  canvasName: string;
   loops: Loop[];
   cycle: Cycle;
   bpm: number;
   bindings: { key: string; does: string }[];
+  /** Which page this panel is sitting on. The tips follow the job of that page. */
+  page?: 'canvas' | 'waves';
   onRoot: (hz: number) => void;
   onScale: (scaleId: string) => void;
   onImportScale: (scale: Scale) => void;
   onRemoveScale: (scaleId: string) => void;
 }
 
-const TIPS: [string, string][] = [
+const CANVAS_TIPS: [string, string][] = [
   ['Double-click', 'the canvas to add a tone'],
   ['Drag a ring', 'onto another block to link them'],
   ['Drag a link', 'to bend it: longer links take longer'],
   ['Double-click', 'a block to fire a pulse from it'],
   ['Backspace', 'deletes what is selected'],
-  ['Waves', 'draws the synth: a cycle is the tone, a motion sweeps the filter'],
+];
+
+const WAVE_TIPS: [string, string][] = [
+  ['Pencil', 'drag empty space to draw a cycle'],
+  ['Saw, square, sine', 'drop a tone shape'],
+  ['Decay', 'drops a two-beat filter sweep'],
+  ['Drag a point', 'to reshape it; double-click a point to remove it'],
+  ['The middle', 'of a drawing picks the region it sounds in'],
 ];
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
@@ -61,12 +72,12 @@ function cycleText(cycle: Cycle, bpm: number) {
 }
 
 /** The sidebar with nothing selected: the piece as a whole. */
-export function PiecePanel({ rootHz, scaleId, counts, loops, cycle, bpm, bindings, onRoot, onScale, onImportScale, onRemoveScale }: Props) {
+export function PiecePanel({ rootHz, scaleId, counts, loops, cycle, bpm, bindings, page = 'canvas', canvasName, onRoot, onScale, onImportScale, onRemoveScale }: Props) {
   const { canvas, snap } = useSettings();
   return (
     <div className="inspector">
       <div className="inspector-title" data-n="00">
-        Piece
+        {canvasName}
       </div>
       <div className="meter" aria-label="Piece size">
         {COUNTS.map(([key, label], index) => (
@@ -124,7 +135,7 @@ export function PiecePanel({ rootHz, scaleId, counts, loops, cycle, bpm, binding
       <div className="field">
         <span className="field-label">Getting started</span>
         <ul className="tips">
-          {TIPS.map(([what, does]) => (
+          {(page === 'waves' ? WAVE_TIPS : CANVAS_TIPS).map(([what, does]) => (
             <li key={what + does}>
               <b>{what}</b> {does}
             </li>
@@ -132,10 +143,24 @@ export function PiecePanel({ rootHz, scaleId, counts, loops, cycle, bpm, binding
           <li>
             <kbd>Space</kbd> plays · <kbd>{MOD}Z</kbd> undoes
           </li>
-          <li>
-            <b>Give a key</b> to a start block or region to play it live
-          </li>
+          {page === 'canvas' && (
+            <li>
+              <b>Give a key</b> to a start block or region to play it live
+            </li>
+          )}
         </ul>
+        <a className="text-link" href={routeHref('canvases')}>
+          All canvases
+        </a>
+        {page === 'waves' ? (
+          <a className="text-link" href={routeHref('canvas')}>
+            Notes and time stay on the canvas →
+          </a>
+        ) : (
+          <a className="text-link" href={routeHref('waves')}>
+            Draw the synth on the Waves page →
+          </a>
+        )}
         <a className="text-link" href={routeHref('guide')}>
           Read the guide →
         </a>

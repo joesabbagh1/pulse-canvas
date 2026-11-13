@@ -21,7 +21,6 @@ export function Pitch({ note, hint }: { note: PlayNote; hint?: string }) {
       <span className="pitch-name">
         {note.name}
         <sub>{note.octave}</sub>
-        {note.offset !== 0 && <sup>{note.offset > 0 ? `+${note.offset}` : note.offset}</sup>}
       </span>
       {hint && <span className="pitch-hint">{hint}</span>}
     </span>

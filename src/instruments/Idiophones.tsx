@@ -55,25 +55,19 @@ export function Kalimba({ notes, held, hints, onPointerDown, onPointerEnd, onCon
 export function SteelPan({ notes, held, hints, onPointerDown, onPointerEnd, onContextMenu }: SurfaceProps) {
   return (
     <div className="steel-pan" onContextMenu={onContextMenu} role="group" aria-label="Steel drum">
-      {notes.map((note, index) => {
-        const turns = Math.max(1, notes.length / 8);
-        const angle = (index / notes.length) * Math.PI * 2 * turns - Math.PI / 2;
-        const radius = 10 + (1 - pitchT(note, notes)) * 36;
-        return (
-          <NoteControl
-            key={note.degree}
-            note={note}
-            held={held.has(note.degree)}
-            hint={hints.get(note.degree)}
-            className="pan-note"
-            style={{ left: `${50 + Math.cos(angle) * radius}%`, top: `${50 + Math.sin(angle) * radius}%` }}
-            onPointerDown={onPointerDown}
-            onPointerEnd={onPointerEnd}
-          >
-            <Pitch note={note} hint={hints.get(note.degree)} />
-          </NoteControl>
-        );
-      })}
+      {notes.map((note) => (
+        <NoteControl
+          key={note.degree}
+          note={note}
+          held={held.has(note.degree)}
+          hint={hints.get(note.degree)}
+          className="pan-note"
+          onPointerDown={onPointerDown}
+          onPointerEnd={onPointerEnd}
+        >
+          <Pitch note={note} hint={hints.get(note.degree)} />
+        </NoteControl>
+      ))}
     </div>
   );
 }

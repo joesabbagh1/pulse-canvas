@@ -1,8 +1,4 @@
 import {
-  Background,
-  BackgroundVariant,
-  Panel,
-  ReactFlow,
   ReactFlowProvider,
   addEdge,
   useEdgesState,
@@ -16,21 +12,16 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
-import { BlockNodeView } from './canvas/BlockNode';
-import { LinkEdgeView, LinkPreview } from './canvas/LinkEdge';
-import { PulseLayer } from './canvas/PulseLayer';
-import { AddDock, ZoomControls, type Layer } from './canvas/CanvasControls';
-import { LoopLabels } from './canvas/LoopLabels';
-import { RegionNodeView } from './canvas/RegionNode';
-import { WaveLayer } from './canvas/WaveLayer';
+import { CanvasPage } from './CanvasPage';
+import { CanvasesPage } from './CanvasesPage';
 import { Engine } from './engine/engine';
 import { ExamplesPage } from './ExamplesPage';
 import { InstrumentsPage } from './InstrumentsPage';
-import { BLOCK_SIZE, GRID, PX_PER_BEAT, fitLength, formatBeats, linkBeats, linkPath, type XY } from './engine/geometry';
+import { BLOCK_SIZE, DEFAULT_SPAN, PX_PER_BEAT, fitLength, inPort, linkBeats, linkBetween, outPort, patternFrame, spanOf, type SpanPoint, type XY } from './engine/geometry';
+import { NEW_PATTERN } from './engine/pattern';
 import { isMelodic, type BlockKind } from './engine/scheduler';
 import { DEFAULT_SCALE_ID, SCALES, scaleById, type Scale, type Tuning } from './engine/tuning';
 import { GuidePage } from './GuidePage';
-import { Inspector } from './Inspector';
 import type { Example } from './examples';
 import {
   bendsCarriedBy,
@@ -39,8 +30,6 @@ import {
   emptyPiece,
   isBlock,
   isRegion,
-  hasSavedPiece,
-  loadPiece,
   newId,
   regionNode,
   savePiece,
@@ -59,8 +48,8 @@ import {
   type RegionData,
 } from './piece';
 import { pieceCycle } from './cycle';
+import { MAX_CANVASES, addCanvas, openLibrary, removeFromLibrary, renameInLibrary, writeLibrary } from './library';
 import { findLoops } from './loops';
-import { PiecePanel } from './PiecePanel';
 import { regionAt, regionContents, regionRect } from './regions';
 import {
   compileWaves,
@@ -84,13 +73,16 @@ import { useHistory } from './history';
 import { datedName, decodeShare, download, encodeShare, pieceFromFile, pieceToFile, sharedCode, shareUrl } from './share';
 import { layoutTake, MAX_TAKES, type Take } from './takes';
 
-const nodeTypes = { block: BlockNodeView, region: RegionNodeView };
-const edgeTypes = { link: LinkEdgeView };
 const SAMPLES_STAY = "Samples don't travel in links: whoever opens it hears the synth in their place. Save a file to send them too.";
 
 /** Focus is somewhere keys type text, so shortcuts should leave them alone. */
 const isTyping = (t: EventTarget | null) =>
   t instanceof HTMLElement && !!t.closest('input[type="text"], input[type="number"], select, textarea');
+
+/** A block as the point links measure from: its centre, and how long its box is. */
+function spanPoint(node: CanvasNode): SpanPoint {
+  return isBlock(node) ? { x: node.position.x, y: node.position.y, pattern: node.data.pattern, beats: node.data.beats } : node.position;
+}
 
 export function App() {
   return (
@@ -102,13 +94,15 @@ export function App() {
 
 function Studio() {
   // Read before the first autosave, to tell a first visit from returning work.
-  const [hadSavedWork] = useState(hasSavedPiece);
-  const [initial] = useState(loadPiece);
+  const [shelf] = useState(() => openLibrary(localStorage));
+  const [hadSavedWork] = useState(shelf.existed);
+  const [initial] = useState(shelf.current);
+  const [canvasId, setCanvasId] = useState(shelf.currentId);
+  const [canvases, setCanvases] = useState(shelf.canvases);
   const [nodes, setNodes, onNodesChange] = useNodesState(toNodes(initial));
   const [edges, setEdges, onEdgesChange] = useEdgesState(toEdges(initial));
   const [waves, setWaves] = useState<Wave[]>(initial.waves ?? []);
   const [takes, setTakes] = useState<Take[]>(initial.takes ?? []);
-  const [layer, setLayer] = useState<Layer>('beats');
   const [pencil, setPencil] = useState(false);
   const [selectedWaveId, setSelectedWaveId] = useState<string | null>(null);
   const [bpm, setBpm] = useState(initial.bpm);
@@ -155,12 +149,17 @@ function Studio() {
   }, [engine, waves, snap, regionKey]);
 
   useEffect(() => {
-    const timer = setTimeout(
-      () => savePiece(toPiece(nodes, edges, { bpm, snap, scaleId, rootHz, scales: importedScales }, waves, takes)),
-      400,
-    );
+    const timer = setTimeout(() => {
+      const piece = toPiece(nodes, edges, { bpm, snap, scaleId, rootHz, scales: importedScales }, waves, takes);
+      savePiece(piece);
+      setCanvases((prev) => {
+        const next = prev.map((canvas) => (canvas.id === canvasId ? { ...canvas, piece, updatedAt: Date.now() } : canvas));
+        writeLibrary(localStorage, { currentId: canvasId, canvases: next });
+        return next;
+      });
+    }, 400);
     return () => clearTimeout(timer);
-  }, [nodes, edges, waves, takes, bpm, snap, scaleId, rootHz, importedScales]);
+  }, [nodes, edges, waves, takes, bpm, snap, scaleId, rootHz, importedScales, canvasId]);
 
   // Everything undoable is in the piece; selection and view are not.
   const pieceJson = useMemo(
@@ -342,7 +341,8 @@ function Studio() {
 
   const addBlock = useCallback(
     (data: BlockData, position: XY) => {
-      const node: BlockNode = { id: newId('b'), type: 'block', position, data, selected: true };
+      const frame = patternFrame(data);
+      const node: BlockNode = { id: newId('b'), type: 'block', position, data, selected: true, ...(frame ?? {}) };
       setNodes((ns) => [...ns.map((n) => (n.selected ? { ...n, selected: false } : n)), node]);
       setEdges((es) => es.map((e) => (e.selected ? { ...e, selected: false } : e)));
       return node.id;
@@ -357,6 +357,8 @@ function Studio() {
   };
 
   const addFromToolbar = (kind: BlockKind) => addBlock({ kind, degree: 0, every: 0 }, viewCenter(120));
+
+  const addPattern = () => addBlock({ kind: 'tone', degree: 0, every: 0, pattern: NEW_PATTERN, beats: DEFAULT_SPAN }, viewCenter(120));
 
   // A new region wraps the selected blocks, if any, so selecting a phrase and
   // adding a region gives that phrase its own tuning.
@@ -380,7 +382,6 @@ function Studio() {
   };
 
   const onPaneDoubleClick = (e: ReactMouseEvent) => {
-    if (layer === 'waves') return;
     if (!(e.target as HTMLElement).classList.contains('react-flow__pane')) return;
     addBlock({ kind: 'tone', degree: 0, every: 0 }, screenToFlowPosition({ x: e.clientX, y: e.clientY }));
   };
@@ -450,7 +451,20 @@ function Studio() {
     const node = nodes.find((n) => n.id === id);
     if (!node || !isBlock(node)) return;
     const data = { ...node.data, ...patch };
-    setNodes((ns) => ns.map((n) => (n.id === id && isBlock(n) ? { ...n, data } : n)));
+    // A length change keeps the left edge put, so the link coming in doesn't jump.
+    const frame = patternFrame(data);
+    let position = node.position;
+    if (frame && node.data.pattern !== undefined && typeof patch.beats === 'number') {
+      const left = node.position.x - (spanOf(node.data) * PX_PER_BEAT) / 2;
+      position = { ...node.position, x: left + frame.width / 2 };
+    }
+    setNodes((ns) =>
+      ns.map((n) => {
+        if (n.id !== id || !isBlock(n)) return n;
+        const { measured: _measured, width: _width, height: _height, ...rest } = n;
+        return frame ? { ...rest, position, data, width: frame.width, height: frame.height } : { ...rest, position, data };
+      }),
+    );
     if (!engine.playing && ('degree' in patch || 'kind' in patch)) {
       void engine.audition({ id, ...node.position, ...data, ...tuningAt(nodes, node.position, canvas, scales) });
     }
@@ -503,8 +517,8 @@ function Studio() {
     const b = nodes.find((n) => n.id === selectedEdge.target);
     const bends = bendsOf(selectedEdge);
     if (a && b) {
-      const beats = linkBeats(linkPath(a.position, b.position, bends, 0).len, snap);
-      const minBeats = linkPath(a.position, b.position, [], 0).len / PX_PER_BEAT;
+      const beats = linkBeats(linkBetween(spanPoint(a), spanPoint(b), bends, 0).len, snap);
+      const minBeats = linkBetween(spanPoint(a), spanPoint(b), [], 0).len / PX_PER_BEAT;
       selectedLink = { beats, minBeats, bends: bends.length, code: selectedEdge.data?.code ?? '' };
     }
   }
@@ -514,7 +528,9 @@ function Studio() {
     const a = selectedEdge && nodes.find((n) => n.id === selectedEdge.source);
     const b = selectedEdge && nodes.find((n) => n.id === selectedEdge.target);
     if (!selectedEdge || !a || !b) return;
-    const bends = fitLength(a.position, b.position, bendsOf(selectedEdge), beats * PX_PER_BEAT);
+    const from = spanPoint(a);
+    const to = spanPoint(b);
+    const bends = fitLength(outPort(from, spanOf(from)), inPort(to, spanOf(to)), bendsOf(selectedEdge), beats * PX_PER_BEAT);
     if (bends) setEdges((es) => es.map((e) => (e.id === selectedEdge.id ? { ...e, data: { ...e.data, bends } } : e)));
   };
 
@@ -522,11 +538,12 @@ function Studio() {
   const loops = useMemo(() => {
     const positions = new Map(nodes.filter(isBlock).map((n) => [n.id, n.position]));
     const links = edges.flatMap((e) => {
-      const a = positions.get(e.source);
-      const b = positions.get(e.target);
-      return a && b ? [{ source: e.source, target: e.target, beats: linkBeats(linkPath(a, b, bendsOf(e), 0).len, snap) }] : [];
+      const a = nodes.find((n) => n.id === e.source);
+      const b = nodes.find((n) => n.id === e.target);
+      return a && b ? [{ source: e.source, target: e.target, beats: linkBeats(linkBetween(spanPoint(a), spanPoint(b), bendsOf(e), 0).len, snap) }] : [];
     });
-    return findLoops(positions, links);
+    const spans = new Map(nodes.filter(isBlock).map((n) => [n.id, spanOf(n.data)]));
+    return findLoops(positions, links, spans);
   }, [nodes, edges, snap]);
 
   const setLinkCode = (code: string) => {
@@ -671,12 +688,74 @@ function Studio() {
   const newPiece = async () => {
     const ok = await confirmDialog({
       title: 'Start a new piece?',
-      message: `Every block, link, region, wave, and take goes away. ${MOD}Z brings them back.`,
+      message: `This canvas is cleared. Your other canvases stay. ${MOD}Z brings this one back.`,
       confirmLabel: 'New piece',
       danger: true,
     });
     if (ok) replaceWith(emptyPiece({ bpm, snap, scaleId, rootHz, scales: importedScales }));
   };
+
+  const settingsNow = () => ({ bpm, snap, scaleId, rootHz, scales: importedScales });
+
+  const openCanvas = (id: string) => {
+    const target = canvases.find((canvas) => canvas.id === id);
+    if (!target) return;
+    if (id !== canvasId) {
+      const piece = currentPiece();
+      const next = canvases.map((canvas) => (canvas.id === canvasId ? { ...canvas, piece, updatedAt: Date.now() } : canvas));
+      writeLibrary(localStorage, { currentId: id, canvases: next });
+      setCanvases(next);
+      setCanvasId(id);
+      replaceWith(target.piece);
+    }
+    go('canvas');
+  };
+
+  const makeCanvas = () => {
+    if (canvases.length >= MAX_CANVASES) {
+      toast('info', `${MAX_CANVASES} canvases is the limit`, 'Delete one before adding another.');
+      return;
+    }
+    const piece = currentPiece();
+    const fresh = emptyPiece(settingsNow());
+    const saved = canvases.map((canvas) => (canvas.id === canvasId ? { ...canvas, piece, updatedAt: Date.now() } : canvas));
+    const added = addCanvas({ currentId: canvasId, canvases: saved }, fresh);
+    if (!added) return;
+    writeLibrary(localStorage, added);
+    setCanvases(added.canvases);
+    setCanvasId(added.currentId);
+    replaceWith(fresh);
+    go('canvas');
+  };
+
+  const renameCanvas = (id: string, name: string) => {
+    setCanvases((prev) => {
+      const file = renameInLibrary({ currentId: canvasId, canvases: [...prev] }, id, name);
+      writeLibrary(localStorage, file);
+      return file.canvases;
+    });
+  };
+
+  const deleteCanvas = async (id: string) => {
+    const canvas = canvases.find((item) => item.id === id);
+    if (!canvas) return;
+    const ok = await confirmDialog({
+      title: `Delete “${canvas.name}”?`,
+      message: 'It is removed from this browser. The other canvases stay.',
+      confirmLabel: 'Delete',
+      danger: true,
+    });
+    if (!ok) return;
+    const piece = currentPiece();
+    const saved = canvases.map((item) => (item.id === canvasId ? { ...item, piece, updatedAt: Date.now() } : item));
+    const result = removeFromLibrary({ currentId: canvasId, canvases: saved }, id, emptyPiece(settingsNow()));
+    writeLibrary(localStorage, result.file);
+    setCanvases(result.file.canvases);
+    setCanvasId(result.file.currentId);
+    if (result.opened) replaceWith(result.opened);
+  };
+
+  const canvasName = canvases.find((canvas) => canvas.id === canvasId)?.name ?? 'Canvas';
 
   const fileMenu: MenuItem[] = [
     { label: 'New piece', onSelect: () => void newPiece() },
@@ -792,11 +871,22 @@ function Studio() {
     document.title = `${page}Pulse Canvas`;
   }, [route]);
 
+  // Arriving on Waves starts in pencil, so the page is for drawing. Leaving it
+  // and coming back does the same; turning the pencil off while you stay there
+  // is how you pan.
+  const wasWaves = useRef(false);
+  useEffect(() => {
+    const onWaves = route === 'waves';
+    if (onWaves && !wasWaves.current) setPencil(true);
+    wasWaves.current = onWaves;
+  }, [route]);
+
   return (
     <SettingsContext.Provider value={settings}>
       <div className="app">
         <TopBar
           route={route}
+          canvasName={canvasName}
           playing={playing}
           recording={recording}
           recordedSeconds={recordedSeconds}
@@ -828,140 +918,96 @@ function Studio() {
         />
 
         <div className={`workspace${selectedNode || selectedLink || waveInfo ? ' has-selection' : ''}`}>
-          <div className={`stage${layer === 'waves' ? ' is-waves' : ''}${layer === 'waves' && pencil ? ' is-drawing' : ''}`} ref={wrapperRef}>
-            <ReactFlow
-              nodes={nodes}
-              edges={edges}
-              onNodesChange={onNodesChange}
-              onEdgesChange={onEdgesChange}
-              nodeTypes={nodeTypes}
-              edgeTypes={edgeTypes}
-              onConnect={onConnect}
-              onConnectEnd={onConnectEnd}
-              isValidConnection={isValidConnection}
-              connectionLineComponent={LinkPreview}
-              onNodeDoubleClick={onNodeDoubleClick}
-              onPaneClick={() => setSelectedWaveId(null)}
-              onNodeClick={() => setSelectedWaveId(null)}
-              onEdgeClick={() => setSelectedWaveId(null)}
-              panOnDrag={layer === 'waves' && pencil ? [1, 2] : true}
-              onNodeDragStart={onNodeDragStart}
-              onNodeDrag={onNodeDrag}
-              onNodeDragStop={() => (carried.current = null)}
-              onDoubleClick={onPaneDoubleClick}
-              nodeOrigin={[0.5, 0.5]}
-              connectOnClick={false}
-              zoomOnDoubleClick={false}
-              panActivationKeyCode={null}
-              deleteKeyCode={['Backspace', 'Delete']}
-              defaultEdgeOptions={{ type: 'link' }}
-              minZoom={0.25}
-              maxZoom={2.5}
-              fitView
-              fitViewOptions={{ padding: 0.25 }}
-              colorMode="dark"
-            >
-              <Background variant={BackgroundVariant.Dots} gap={PX_PER_BEAT * GRID} size={1.4} color="#2a2e39" />
-              <LoopLabels loops={loops} blocks={blockPositions} />
-              <WaveLayer
-                waves={waves}
-                selectedId={selectedWaveId}
-                snap={snap}
-                drawing={layer === 'waves' && pencil}
-                ghost={layer !== 'waves'}
-                engine={engine}
-                onSelect={(id) => {
-                  setSelectedWaveId(id);
-                  if (id) clearFlowSelection();
-                }}
-                onPoints={(id, points) => setWaves((ws) => ws.map((w) => (w.id === id ? { ...w, points } : w)))}
-                onCreate={(points) => addWave('cycle', points)}
-              />
-              <PulseLayer engine={engine} />
-              <AddDock
-                layer={layer}
-                pencil={pencil}
-                onLayer={(next) => {
-                  setLayer(next);
-                  setPencil(next === 'waves');
-                }}
-                onPencil={() => setPencil((on) => !on)}
-                onAdd={addFromToolbar}
-                onAddRegion={addRegion}
-                onStamp={addStamp}
-              />
-              <ZoomControls />
-              {playing && (
-                <Panel position="top-left" className={`status${stats.overflow ? ' warn' : ''}`}>
-                  <span className="status-dot" aria-hidden="true" />
-                  {stats.pulses} {stats.pulses === 1 ? 'pulse' : 'pulses'} in flight
-                  {cycle.kind === 'repeats' && ` · beat ${Math.floor(stats.beat % cycle.beats) + 1} of ${formatBeats(cycle.beats, true)}`}
-                  {stats.overflow && ' · limit reached, extra pulses dropped'}
-                </Panel>
-              )}
-            </ReactFlow>
-          </div>
-
-          <aside className="sidebar" aria-label={selectedNode || selectedLink || waveInfo ? 'Selection' : 'Piece'}>
-            {selectedNode || selectedLink || waveInfo ? (
-              <Inspector
-                node={selectedBlock}
-                nodeTuning={blockTuning}
-                region={selectedRegion}
-                link={selectedLink}
-                wave={waveInfo || undefined}
-                playing={playing}
-                onChange={updateBlock}
-                onLinkCode={setLinkCode}
-                onLinkLength={setLinkLength}
-                onRegionChange={updateRegion}
-                onLoadSample={(id, file) => void loadSample(id, file)}
-                onImportScale={importScale}
-                onRemoveScale={(id) => void removeScale(id)}
-                onFire={(id) => engine.fire(id)}
-                onStraighten={straightenSelection}
-                onWaveRole={(role) => selectedWave && setWaves((ws) => ws.map((w) => (w.id === selectedWave.id ? { ...w, role } : w)))}
-                onWaveInstrument={(instrument) =>
-                  selectedWave &&
-                  setWaves((ws) =>
-                    ws.map((w) => {
-                      if (w.id !== selectedWave.id) return w;
-                      if (!instrument) {
-                        const next = { ...w };
-                        delete next.instrument;
-                        return next;
-                      }
-                      return { ...w, instrument };
-                    }),
-                  )
-                }
-                onDelete={() => {
-                  if (!selectedWave) {
-                    deleteSelection();
-                    return;
+          <CanvasPage
+            mode={route === 'waves' ? 'waves' : 'canvas'}
+            parked={route !== 'canvas' && route !== 'waves'}
+            wrapperRef={wrapperRef}
+            nodes={nodes}
+            edges={edges}
+            waves={waves}
+            selectedWaveId={selectedWaveId}
+            pencil={pencil}
+            playing={playing}
+            snap={snap}
+            bpm={bpm}
+            stats={stats}
+            cycle={cycle}
+            loops={loops}
+            blockPositions={blockPositions}
+            engine={engine}
+            selectedBlock={selectedBlock}
+            blockTuning={blockTuning || undefined}
+            selectedRegion={selectedRegion}
+            selectedLink={selectedLink}
+            waveInfo={waveInfo || undefined}
+            rootHz={rootHz}
+            scaleId={scaleId}
+            counts={{ blocks: nodes.filter(isBlock).length, links: edges.length, regions: nodes.filter(isRegion).length, waves: waves.length }}
+            canvasName={canvasName}
+            bindings={bindings}
+            takenKeys={takenKeys}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            onConnect={onConnect}
+            onConnectEnd={onConnectEnd}
+            isValidConnection={isValidConnection}
+            onNodeDoubleClick={onNodeDoubleClick}
+            onNodeDragStart={onNodeDragStart}
+            onNodeDrag={onNodeDrag}
+            onNodeDragStop={() => (carried.current = null)}
+            onPaneDoubleClick={onPaneDoubleClick}
+            onPaneClick={() => setSelectedWaveId(null)}
+            onFlowSelect={() => setSelectedWaveId(null)}
+            onSelectWave={(id) => {
+              setSelectedWaveId(id);
+              if (id) clearFlowSelection();
+            }}
+            onWavePoints={(id, points) => setWaves((ws) => ws.map((w) => (w.id === id ? { ...w, points } : w)))}
+            onCreateWave={(points) => addWave('cycle', points)}
+            onPencil={() => setPencil((on) => !on)}
+            onAdd={addFromToolbar}
+            onAddPattern={addPattern}
+            onAddRegion={addRegion}
+            onStamp={addStamp}
+            onChangeBlock={updateBlock}
+            onLinkCode={setLinkCode}
+            onLinkLength={setLinkLength}
+            onRegionChange={updateRegion}
+            onLoadSample={(id, file) => void loadSample(id, file)}
+            onImportScale={importScale}
+            onRemoveScale={(id) => void removeScale(id)}
+            onFire={(id) => engine.fire(id)}
+            onStraighten={straightenSelection}
+            onWaveRole={(role) => selectedWave && setWaves((ws) => ws.map((w) => (w.id === selectedWave.id ? { ...w, role } : w)))}
+            onWaveInstrument={(instrument) =>
+              selectedWave &&
+              setWaves((ws) =>
+                ws.map((w) => {
+                  if (w.id !== selectedWave.id) return w;
+                  if (!instrument) {
+                    const next = { ...w };
+                    delete next.instrument;
+                    return next;
                   }
-                  setWaves((ws) => ws.filter((w) => w.id !== selectedWave.id));
-                  setSelectedWaveId(null);
-                }}
-                takenKeys={takenKeys}
-              />
-            ) : (
-              <PiecePanel
-                rootHz={rootHz}
-                scaleId={scaleId}
-                counts={{ blocks: nodes.filter(isBlock).length, links: edges.length, regions: nodes.filter(isRegion).length, waves: waves.length }}
-                loops={loops}
-                cycle={cycle}
-                bpm={bpm}
-                bindings={bindings}
-                onRoot={setRootHz}
-                onScale={setScaleId}
-                onImportScale={importScale}
-                onRemoveScale={(id) => void removeScale(id)}
-              />
-            )}
-          </aside>
+                  return { ...w, instrument };
+                }),
+              )
+            }
+            onDelete={() => {
+              if (!selectedWave) {
+                deleteSelection();
+                return;
+              }
+              setWaves((ws) => ws.filter((w) => w.id !== selectedWave.id));
+              setSelectedWaveId(null);
+            }}
+            onRoot={setRootHz}
+            onScale={setScaleId}
+          />
 
+          {route === 'canvases' && (
+            <CanvasesPage canvases={canvases} currentId={canvasId} onOpen={openCanvas} onCreate={makeCanvas} onRename={renameCanvas} onDelete={(id) => void deleteCanvas(id)} />
+          )}
           {route === 'examples' && <ExamplesPage onOpen={openExample} />}
           {route === 'guide' && <GuidePage />}
           {route === 'instruments' && (

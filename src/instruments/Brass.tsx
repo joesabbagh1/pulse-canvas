@@ -6,23 +6,21 @@ export function Brass({ notes, variant, held, hints, onPointerDown, onPointerEnd
     return (
       <div className="brass is-horn" onContextMenu={onContextMenu} role="group" aria-label="Horn">
         <div className="horn-coil" aria-hidden="true" />
-        {ordered.map((note, index) => {
-          const angle = (index / Math.max(1, ordered.length)) * Math.PI * 2 - Math.PI / 2;
-          return (
+        <div className="brass-notes">
+          {ordered.map((note) => (
             <NoteControl
               key={note.degree}
               note={note}
               held={held.has(note.degree)}
               hint={hints.get(note.degree)}
               className="brass-note"
-              style={{ left: `${50 + Math.cos(angle) * 38}%`, top: `${50 + Math.sin(angle) * 38}%` }}
               onPointerDown={onPointerDown}
               onPointerEnd={onPointerEnd}
             >
               <Pitch note={note} hint={hints.get(note.degree)} />
             </NoteControl>
-          );
-        })}
+          ))}
+        </div>
       </div>
     );
   }

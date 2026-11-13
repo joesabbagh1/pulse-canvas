@@ -110,6 +110,46 @@ describe('App', () => {
     act(() => root.unmount());
   });
 
+  it('adds a pattern block, edits it, and lengthens the box', async () => {
+    const { host, root } = await mount();
+    await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Add pattern"]')!.click());
+    const input = host.querySelector<HTMLInputElement>('.box input[aria-label="Pattern"]')!;
+    expect(input.value).toBe('0*2 [~ 2] 4');
+    expect(host.querySelector('.box-beats')!.textContent).toBe('2');
+    expect(host.querySelectorAll('.box-strip rect').length).toBeGreaterThan(0);
+
+    const proto = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!;
+    await act(async () => {
+      (input as HTMLInputElement & { _valueTracker?: { setValue: (v: string) => void } })._valueTracker?.setValue('');
+      proto.set!.call(input, 'bd ]');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect(host.querySelector('.box')!.classList.contains('has-error')).toBe(true);
+    expect(host.querySelector('.inspector .warn')!.textContent).toMatch(/\]/);
+
+    await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Longer"]')!.click());
+    expect(host.querySelector('.box-beats')!.textContent).toBe('2¼');
+    act(() => root.unmount());
+  });
+
+  it('finds an instrument by typing in the block menu', async () => {
+    vi.spyOn(Engine.prototype, 'audition').mockResolvedValue();
+    const { host, root } = await mount();
+    await addInstrument(host, 'Synths', 'Tone');
+    await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Instrument"]')!.click());
+    const search = host.querySelector<HTMLInputElement>('input[aria-label="Search instrument"]')!;
+    const proto = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!;
+    await act(async () => {
+      proto.set!.call(search, 'khuur');
+      search.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    const options = [...host.querySelectorAll('[role="option"]')].map((option) => option.textContent);
+    expect(options).toEqual(['Khuur']);
+    await act(async () => host.querySelector<HTMLElement>('[role="option"]')!.click());
+    expect(host.querySelector('.inspector .select-value')!.textContent).toBe('Khuur');
+    act(() => root.unmount());
+  });
+
   it('adds a jaw harp and a khuur, both pitched from the scale', async () => {
     const { host, root } = await mount();
     await addInstrument(host, 'Plucked strings', 'Jaw harp');
@@ -121,9 +161,11 @@ describe('App', () => {
     act(() => root.unmount());
   });
 
-  it('drops a saw on the wave layer and autosaves it', async () => {
+  it('drops a saw on the waves page and autosaves it', async () => {
     const { host, root } = await mount();
-    await act(async () => button(host, 'Waves').click());
+    await act(async () => void host.querySelector('a.tab[href="#/waves"]')!.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true })));
+    await act(() => new Promise((r) => setTimeout(r, 10)));
+    expect(host.querySelector('a.tab.is-active')!.textContent).toBe('Waves');
     await act(async () => button(host, 'Saw').click());
     expect(host.querySelectorAll('.wave-cycle')).toHaveLength(1);
     expect(host.querySelector('.inspector-title')!.textContent).toBe('Wave');
@@ -354,6 +396,8 @@ describe('App', () => {
     it('offers the tour first on the examples page', async () => {
       const { host, root } = await mount();
       // Navigation is a tab link; jsdom follows its fragment and fires hashchange.
+      await act(async () => host.querySelector<HTMLAnchorElement>('a.tab[href="#/canvases"]')!.click());
+      await act(() => new Promise((r) => setTimeout(r, 20)));
       await act(async () => host.querySelector<HTMLAnchorElement>('nav.tabs a[href="#/examples"]')!.click());
       await act(() => new Promise((r) => setTimeout(r, 20)));
       const titles = [...host.querySelectorAll('.example-card h2')].map((h) => h.textContent);
@@ -573,10 +617,34 @@ describe('App', () => {
       act(() => root.unmount());
     });
 
+    it('lists every canvas, and a new one is kept beside the current', async () => {
+      const { host, root } = await mount();
+      const tick = () => act(() => new Promise((r) => setTimeout(r, 10)));
+      const openCanvases = () =>
+        act(async () => void host.querySelector('a.tab[href="#/canvases"]')!.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true })));
+      await openCanvases();
+      await tick();
+      expect(host.querySelector('.transport')).toBeNull();
+      expect(host.querySelector('button[aria-label="File"]')).toBeNull();
+      expect(host.querySelector('.canvases-page h1')!.textContent).toBe('Canvases');
+      expect(host.querySelectorAll('.canvas-card')).toHaveLength(1);
+
+      await act(async () => button(host, 'New canvas').click());
+      await tick();
+      expect(host.querySelector('a.tab.is-active')!.textContent).toBe('Canvas');
+      await openCanvases();
+      await tick();
+      expect(host.querySelectorAll('.canvas-card')).toHaveLength(2);
+      expect(host.querySelector<HTMLInputElement>('.canvas-card.is-current .canvas-name')!.value).toBe('Canvas 2');
+      act(() => root.unmount());
+    });
+
     it('tabs move between pages in the URL, and Escape comes back to the canvas', async () => {
       const { host, root } = await mount();
       const tick = () => act(() => new Promise((r) => setTimeout(r, 10)));
       // A real click event: an earlier test stubs HTMLAnchorElement.click to catch downloads.
+      await act(async () => void host.querySelector('a.tab[href="#/canvases"]')!.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true })));
+      await tick();
       await act(async () => void host.querySelector('a.tab[href="#/guide"]')!.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true })));
       await tick();
       expect(location.hash).toBe('#/guide');

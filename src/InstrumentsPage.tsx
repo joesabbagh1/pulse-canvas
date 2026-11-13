@@ -311,6 +311,7 @@ function useRecorder({
 
 export function InstrumentsPage({ bpm, snap, scale, rootHz, takes, onAttack, onRelease, onSaveTake, onPlace }: Omit<Props, 'notes' | 'focus' | 'onShift'>) {
   const [instrumentId, setInstrumentId] = useState('tone');
+  const [listOpen, setListOpen] = useState(() => window.matchMedia('(min-width: 901px)').matches);
   const instrument = instrumentById(instrumentId) ?? instrumentById('tone')!;
   const playing = playingFor(instrument.id) ?? playingFor('tone')!;
   const notes = useMemo(
@@ -337,7 +338,6 @@ export function InstrumentsPage({ bpm, snap, scale, rootHz, takes, onAttack, onR
   const hue = CATEGORIES.find((category) => category.id === instrument.category)?.hue ?? 200;
   const swatch = { '--c': `hsl(${hue} 62% 58%)` } as CSSProperties;
   const root = describePitch(0, scale, rootHz);
-  const surfaceRef = useRef<HTMLDivElement>(null);
   const hints = useMemo(() => {
     const out = new Map<number, string>();
     if (!instrument.pitched) return out;
@@ -347,10 +347,6 @@ export function InstrumentsPage({ bpm, snap, scale, rootHz, takes, onAttack, onR
     }
     return out;
   }, [focus, instrument.pitched, notes, scale]);
-
-  useEffect(() => {
-    surfaceRef.current?.querySelector('.is-hint')?.scrollIntoView({ inline: 'center', block: 'nearest' });
-  }, [focus, instrument.id]);
 
   const choose = (id: string) => {
     if (id === instrument.id) return;
@@ -362,7 +358,8 @@ export function InstrumentsPage({ bpm, snap, scale, rootHz, takes, onAttack, onR
   const ignoreMenu = (event: { preventDefault: () => void }) => event.preventDefault();
 
   return (
-    <div className="page instruments-page">
+    <div className={`page instruments-page${listOpen ? '' : ' is-list-closed'}`}>
+      {listOpen && (
       <aside className="instrument-catalog" aria-label="Instruments">
         <h1 data-n="04">Instruments</h1>
         {CATEGORIES.map((category, family) => (
@@ -384,10 +381,14 @@ export function InstrumentsPage({ bpm, snap, scale, rootHz, takes, onAttack, onR
           </section>
         ))}
       </aside>
+      )}
 
       <div className="instrument-stage">
         <header className="instrument-intro">
           <div className="instrument-heading">
+            <button type="button" className="catalog-toggle" aria-expanded={listOpen} onClick={() => setListOpen((open) => !open)}>
+              {listOpen ? 'Hide list' : 'Instruments'}
+            </button>
             <span className="dock-swatch" style={swatch} aria-hidden="true" />
             <h2>{instrument.name}</h2>
           </div>
@@ -403,7 +404,7 @@ export function InstrumentsPage({ bpm, snap, scale, rootHz, takes, onAttack, onR
         </header>
 
         <div className="instrument-player">
-          <div ref={surfaceRef} className="instrument-surface" style={swatch}>
+          <div className="instrument-surface" style={swatch}>
             <InstrumentSurface
               playing={playing}
               scale={scale}

@@ -26,8 +26,15 @@ function atTime(
   value: number,
   time: number,
 ) {
+  if (!Number.isFinite(value) || !Number.isFinite(time)) return;
   param.cancelScheduledValues(time);
   param.setValueAtTime(value, time);
+}
+
+/** A few milliseconds of attack, so a new note does not click. Clicks stack into a hiss. */
+function soften(envelope: { cancel(time: number): unknown; attack: unknown }, time: number, attack: number) {
+  envelope.cancel(time);
+  envelope.attack = Math.max(0.012, attack);
 }
 
 /** A low drum falls farther: 4 octaves near 40 Hz, down to 2 by about 240 Hz. */
@@ -629,7 +636,7 @@ export class CatalogVoices {
       osc.count = 2;
       osc.spread = inst.spread ?? 15;
     }
-    voice.synth.envelope.attack = inst.attack;
+    soften(voice.synth.envelope, time, inst.attack);
     voice.synth.envelope.decay = inst.decay;
     voice.synth.envelope.sustain = inst.sustain;
     voice.synth.envelope.release = inst.release;
@@ -653,8 +660,8 @@ export class CatalogVoices {
     if (!held) return NO_GATE;
     const { voice } = held;
     voice.dampening = inst.dampening;
-    voice.resonance = inst.resonance;
-    voice.attackNoise = inst.attackNoise;
+    voice.resonance = Math.min(0.9, inst.resonance);
+    voice.attackNoise = Math.min(1.2, inst.attackNoise);
     voice.release = inst.release;
     atTime(voice.volume, level(inst.gain, velocity), time);
     voice.triggerAttack(hz, time);
@@ -672,7 +679,7 @@ export class CatalogVoices {
     if (!held) return NO_GATE;
     const { voice } = held;
     const vel = Math.min(1, velocity);
-    voice.synth.envelope.attack = inst.attack;
+    soften(voice.synth.envelope, time, inst.attack);
     voice.vibrato(inst.vibrato);
     voice.cutoff(inst.cutoff, time);
     atTime(voice.synth.volume, level(inst.gain, vel), time);
@@ -695,7 +702,7 @@ export class CatalogVoices {
     const { voice } = held;
     const vel = Math.min(1, velocity);
     voice.synth.oscillator.type = inst.wave;
-    voice.synth.envelope.attack = inst.attack;
+    soften(voice.synth.envelope, time, inst.attack);
     voice.synth.envelope.decay = 0.12;
     voice.synth.envelope.sustain = inst.sustain;
     voice.synth.envelope.release = inst.release;
@@ -733,11 +740,12 @@ export class CatalogVoices {
     voice.modulation.type = 'sine';
     atTime(voice.harmonicity, inst.ratio, time);
     atTime(voice.modulationIndex, inst.index, time);
-    voice.envelope.attack = 0.001;
+    voice.envelope.cancel(time);
+    voice.envelope.attack = 0.008;
     voice.envelope.decay = inst.decay;
     voice.envelope.sustain = 0;
     voice.envelope.release = release;
-    voice.modulationEnvelope.attack = 0.001;
+    voice.modulationEnvelope.attack = 0.008;
     voice.modulationEnvelope.decay = Math.max(0.005, inst.decay * 0.6);
     voice.modulationEnvelope.sustain = 0;
     voice.modulationEnvelope.release = Math.min(0.1, release);

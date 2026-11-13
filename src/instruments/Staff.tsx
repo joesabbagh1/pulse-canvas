@@ -20,7 +20,7 @@ export function Staff({ notes, syllable, held, hints, onPointerDown, onPointerEn
             held={held.has(note.degree)}
             hint={hints.get(note.degree)}
             className="staff-note"
-            style={{ '--pitch': `${8 + (1 - pitchT(note, notes)) * 72}%` } as CSSProperties}
+            style={{ '--pitch': `${16 + (1 - pitchT(note, notes)) * 58}%` } as CSSProperties}
             onPointerDown={onPointerDown}
             onPointerEnd={onPointerEnd}
           >

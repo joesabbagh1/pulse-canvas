@@ -1,6 +1,8 @@
 import { DEFAULT_GROOVE, type Groove } from './engine/groove';
 import { DEFAULT_FX, DEFAULT_MIX, MIN_LEVEL, type Fx, type Mix } from './engine/mixer';
 import type { SampleRef } from './engine/samples';
+import { MAX_SPAN, MIN_SPAN, spanOf } from './engine/geometry';
+import { MAX_PATTERN_CHARS } from './engine/pattern';
 import { MAX_DELAY } from './engine/script';
 import type { BlockKind } from './engine/scheduler';
 import { instrumentById } from './engine/instruments';
@@ -119,6 +121,8 @@ export function readPiece(raw: unknown): Piece {
     list(raw.blocks, LIMITS.blocks).map((v) => {
       if (!isObject(v) || !id(v.id) || (v.kind !== 'start' && !instrumentById(String(v.kind ?? '')))) return null;
       const code = text(v.code, LIMITS.code);
+      // A start block only sends pulses out, so it can't hold a pattern.
+      const pattern = typeof v.pattern === 'string' && v.kind !== 'start' ? v.pattern.slice(0, MAX_PATTERN_CHARS).replace(/\s+/g, ' ') : undefined;
       return {
         id: v.id as string,
         x: num(v.x, -FAR, FAR, 0),
@@ -128,6 +132,7 @@ export function readPiece(raw: unknown): Piece {
         every: num(v.every, 0, MAX_DELAY, 0),
         ...(code ? { code } : {}),
         ...(readKey(v.key) ? { key: readKey(v.key) } : {}),
+        ...(pattern !== undefined ? { pattern, beats: num(v.beats, MIN_SPAN, MAX_SPAN, spanOf({ pattern })) } : {}),
       };
     }),
   );

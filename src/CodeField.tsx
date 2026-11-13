@@ -11,6 +11,9 @@ export const CODE_REFERENCE: [string, string, Target?][] = [
   ['length 1/8', 'how long this note is, in beats', 'block'],
   ['delay 1/2', 'wait this many beats first'],
   ['route cycle', 'send down one link at a time: all, cycle or random', 'block'],
+  ['fast 2', 'play a pattern this many times across the block', 'block'],
+  ['slow 2', 'stretch a pattern over this many pulses', 'block'],
+  ['rev', 'play a pattern backwards', 'block'],
   ['every 3: …', 'only on the 3rd, 6th, 9th… pulse'],
   ['chance 50%: …', 'only sometimes'],
 ];

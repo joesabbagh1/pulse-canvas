@@ -9,14 +9,17 @@ import {
 } from '@xyflow/react';
 import { memo, useEffect, useRef, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import {
-  BLOCK_R,
   PARALLEL_OFFSET,
   formatBeats,
+  inPort,
   linkBeats,
   linkPath,
   nearestSegment,
+  outPort,
   pointAt,
+  portGap,
   slicePath,
+  spanOf,
   type LinkPath,
   type XY,
 } from '../engine/geometry';
@@ -37,8 +40,15 @@ function center(node: InternalNode): XY {
   };
 }
 
-/** The link between the two block rims, its arrowhead and label spot. */
-function shape(path: LinkPath, endGap: number) {
+/** The out or in port of a block, and how much of the link is hidden under it. */
+function port(node: InternalNode, side: 'out' | 'in') {
+  const at = center(node);
+  const span = spanOf(node.data as { pattern?: string; beats?: number });
+  return { at: side === 'out' ? outPort(at, span) : inPort(at, span), gap: portGap(span) };
+}
+
+/** The link between the two ports, its arrowhead and label spot. */
+function shape(path: LinkPath, startGap: number, endGap: number) {
   const { len } = path;
   const tip = pointAt(path, len - endGap);
   const base = pointAt(path, len - endGap - ARROW_LEN);
@@ -49,13 +59,13 @@ function shape(path: LinkPath, endGap: number) {
   const nx = -ay / alen;
   const ny = ax / alen;
   const mid = pointAt(path, len / 2);
-  const points = slicePath(path, BLOCK_R, len - endGap - ARROW_LEN);
+  const points = slicePath(path, startGap, len - endGap - ARROW_LEN);
   return {
     path: points.map((p, i) => `${i ? 'L' : 'M'} ${p.x} ${p.y}`).join(' '),
     arrow: `M ${tip.x} ${tip.y} L ${base.x + nx * ARROW_HALF} ${base.y + ny * ARROW_HALF} L ${base.x - nx * ARROW_HALF} ${base.y - ny * ARROW_HALF} Z`,
     labelX: mid.x - mid.uy * 13,
     labelY: mid.y + mid.ux * 13,
-    visible: len > BLOCK_R + endGap + ARROW_LEN + 4,
+    visible: len > startGap + endGap + ARROW_LEN + 4,
   };
 }
 
@@ -81,8 +91,10 @@ function LinkView({ id, source, target, selected, data }: EdgeProps<LinkEdge>) {
   if (!from || !to) return null;
 
   const bends = data?.bends ?? [];
-  const path = linkPath(center(from), center(to), bends, hasStraightReverse ? PARALLEL_OFFSET : 0);
-  const s = shape(path, BLOCK_R + 2);
+  const fromPort = port(from, 'out');
+  const toPort = port(to, 'in');
+  const path = linkPath(fromPort.at, toPort.at, bends, hasStraightReverse ? PARALLEL_OFFSET : 0);
+  const s = shape(path, fromPort.gap, toPort.gap + 2);
   if (!s.visible) return null;
 
   const setBends = (update: (bends: XY[]) => XY[]) => updateEdgeData(id, (edge) => ({ bends: update(bendsOf(edge)) }));
@@ -171,9 +183,11 @@ export const LinkEdgeView = memo(LinkView);
 /** The line shown while dragging out a new link, labelled with its length in beats. */
 export function LinkPreview({ fromNode, toNode, toX, toY }: ConnectionLineComponentProps) {
   const { snap } = useSettings();
-  const end = toNode && toNode.id !== fromNode.id ? center(toNode) : { x: toX, y: toY };
-  const path = linkPath(center(fromNode), end, [], 0);
-  const s = shape(path, toNode ? BLOCK_R + 2 : 0);
+  const fromPort = port(fromNode, 'out');
+  const toPort = toNode && toNode.id !== fromNode.id ? port(toNode, 'in') : null;
+  const end = toPort ? toPort.at : { x: toX, y: toY };
+  const path = linkPath(fromPort.at, end, [], 0);
+  const s = shape(path, fromPort.gap, toPort ? toPort.gap + 2 : 0);
   if (!s.visible) return null;
 
   return (

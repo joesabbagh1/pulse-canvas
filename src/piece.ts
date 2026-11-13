@@ -1,5 +1,5 @@
 import type { Edge, Node } from '@xyflow/react';
-import { BLOCK_SIZE, PX_PER_BEAT, type XY } from './engine/geometry';
+import { BLOCK_SIZE, PX_PER_BEAT, patternFrame, spanOf, type XY } from './engine/geometry';
 import { backbeat, phraseLoop } from './melody';
 import { DEFAULT_FX, DEFAULT_MIX, type BusSettings, type Fx, type Mix } from './engine/mixer';
 import { DEFAULT_GROOVE, type Groove } from './engine/groove';
@@ -16,7 +16,11 @@ import { REGION_Z, regionAt } from './regions';
 
 /** `code` is a script run on each pulse through the block or link (see engine/script.ts). */
 /** `key` is a performance key: pressing it fires the block (start blocks only). */
-export type BlockData = { kind: BlockKind; degree: number; every: number; code?: string; key?: string };
+/**
+ * `pattern` makes it a pattern block: a box `beats` long that plays the
+ * pattern across its length each time a pulse goes through (see engine/pattern.ts).
+ */
+export type BlockData = { kind: BlockKind; degree: number; every: number; code?: string; key?: string; pattern?: string; beats?: number };
 export type BlockNode = Node<BlockData, 'block'>;
 /**
  * A rectangle of canvas with its own tuning, mix, effects, groove and sample,
@@ -103,12 +107,17 @@ export function regionNode(id: string, rect: { x: number; y: number; w: number; 
 export function toNodes(piece: Piece): CanvasNode[] {
   return [
     ...piece.regions.map(({ id, x, y, w, h, ...data }) => regionNode(id, { x, y, w, h }, data)),
-    ...piece.blocks.map(({ id, x, y, kind, degree, every, code, key }): BlockNode => ({
-      id,
-      type: 'block',
-      position: { x, y },
-      data: { kind, degree, every, ...(code ? { code } : {}), ...(key ? { key } : {}) },
-    })),
+    ...piece.blocks.map(({ id, x, y, kind, degree, every, code, key, pattern, beats }): BlockNode => {
+      const data = {
+        kind,
+        degree,
+        every,
+        ...(code ? { code } : {}),
+        ...(key ? { key } : {}),
+        ...(pattern !== undefined ? { pattern, beats: spanOf({ pattern, beats }) } : {}),
+      };
+      return { id, type: 'block', position: { x, y }, data, ...(patternFrame(data) ?? {}) };
+    }),
   ];
 }
 

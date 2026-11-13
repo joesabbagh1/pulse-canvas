@@ -48,6 +48,11 @@ describe('findLoops', () => {
     expect(loops).toEqual([{ blocks: ['a', 'b', 'c'], beats: 3.5, at: { x: 100, y: 0 } }]);
   });
 
+  it('counts the beats a pulse spends crossing a pattern block', () => {
+    const loops = findLoops(at(['a', 'b']), [link('a', 'b'), link('b', 'a', 2)], new Map([['a', 2]]));
+    expect(loops.map((l) => l.beats)).toEqual([5]);
+  });
+
   it('tells a loop from its reverse, and ignores chains that never close', () => {
     const loops = findLoops(at(['a', 'b']), [link('a', 'b'), link('b', 'a', 2)]);
     expect(loops.map((l) => l.beats)).toEqual([3]);
@@ -65,15 +70,19 @@ describe('findLoops', () => {
 
 describe('routes', () => {
   it('reads pages from the fragment, and anything else is the canvas', () => {
-    expect(['#/examples', '#/guide', '#/instruments', '#/', '', '#/nowhere', '#piece=1.abc'].map(parseRoute)).toEqual([
+    expect(['#/canvases', '#/examples', '#/guide', '#/instruments', '#/waves', '#/', '', '#/nowhere', '#piece=1.abc'].map(parseRoute)).toEqual([
+      'canvases',
       'examples',
       'guide',
       'instruments',
+      'waves',
       'canvas',
       'canvas',
       'canvas',
       'canvas',
     ]);
     expect(routeHref('guide')).toBe('#/guide');
+    expect(routeHref('canvases')).toBe('#/canvases');
+    expect(routeHref('waves')).toBe('#/waves');
   });
 });

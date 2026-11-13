@@ -47,7 +47,7 @@ const SECTIONS: Section[] = [
     body: (
       <ol>
         <li>
-          Open <a href={routeHref('examples')}>an example</a>, or start from the canvas you have.
+          <a href={routeHref('canvases')}>Canvases</a> lists every piece in this browser. Open one, or start from the canvas you have. An <a href={routeHref('examples')}>example</a> loads into the canvas that is open.
         </li>
         <li>
           Press <b>Play</b> (or <kbd>Space</kbd>). Every <b>Start</b> block sends out a pulse.
@@ -153,8 +153,8 @@ const SECTIONS: Section[] = [
     body: (
       <>
         <p>
-          <b>Waves</b>, in the bar at the bottom, is where the synth is drawn. Beats still fire the notes. A wave belongs to
-          the region its middle sits in, and it moves when that region moves.
+          <a href={routeHref('waves')}>Waves</a> is its own page. The canvas is where notes and time live; Waves is where
+          the synth is drawn. A wave belongs to the region its middle sits in, and it moves when that region moves.
         </p>
         <p>
           A <b>cycle</b> is one period of an oscillator. Left on the region, it replaces Tone. Aim it at an instrument,
@@ -168,7 +168,32 @@ const SECTIONS: Section[] = [
           A <b>cutoff</b> motion loops, and its width is the loop in beats — the same pixels-to-beats rule as a link.{' '}
           <b>Decay</b> drops a two-beat sweep. On the region, height bends the Tone filter around the Tone slider. Aim it
           at one instrument and only that instrument's filter moves. Motions on the same target add together. A dot rides
-          the line while it plays. Turn the pencil off (or drag with the middle button) to pan.
+          the line while it plays. Turn the pencil off (or drag with the middle button) to pan. The notes keep firing
+          from the canvas.
+        </p>
+      </>
+    ),
+  },
+  {
+    id: 'patterns',
+    title: 'Patterns',
+    body: (
+      <>
+        <p>
+          A <b>pattern</b> block is a box as wide as its length. The code is typed in the box. A pulse goes in at the
+          left, plays the pattern while it crosses, and leaves at the right. Drag the right edge to change that length.
+        </p>
+        <p>
+          The instrument on the block is the one that plays. The text is{' '}
+          <a href="https://strudel.cc/learn/mini-notation/">Strudel mini-notation</a> for the rhythm and the pitch:
+          numbers are scale degrees above the block's own pitch, and a word such as <code>bd</code> is just a hit of
+          that same instrument. <code>[bd sd]</code> squeezes into one step, <code>hh*4</code> is four times as fast,{' '}
+          <code>bd(3,8)</code> spreads 3 hits over 8 steps, and <code>&lt;0 2 4&gt;</code> plays one per pulse, in turn.
+        </p>
+        <p>
+          Add one from the bar, or select a block and switch it from <b>Disc</b> to <b>Pattern</b>. <code>fast</code>,{' '}
+          <code>slow</code> and <code>rev</code> in its code change how that pass plays. The notation is parsed, never
+          run as JavaScript.
         </p>
       </>
     ),

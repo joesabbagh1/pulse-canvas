@@ -2,12 +2,19 @@ import { useEffect, useRef } from 'react';
 import { Menu, type MenuItem } from './ui/Menu';
 import { routeHref, type Route } from './ui/route';
 
-const TABS: { route: Route; label: string }[] = [
-  { route: 'canvas', label: 'Canvas' },
+const APP_TABS: { route: Route; label: string }[] = [
+  { route: 'canvases', label: 'Canvases' },
   { route: 'examples', label: 'Examples' },
   { route: 'guide', label: 'Guide' },
   { route: 'instruments', label: 'Instruments' },
 ];
+
+const CANVAS_TABS: { route: Route; label: string }[] = [
+  { route: 'canvas', label: 'Canvas' },
+  { route: 'waves', label: 'Waves' },
+];
+
+const insideCanvas = (route: Route) => route === 'canvas' || route === 'waves';
 
 /** m:ss */
 export const clockTime = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`;
@@ -16,6 +23,7 @@ export const MOD = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(na
 
 interface Props {
   route: Route;
+  canvasName: string;
   playing: boolean;
   recording: boolean;
   recordedSeconds: number;
@@ -34,11 +42,11 @@ interface Props {
   onClear: () => void;
 }
 
-// One bar across the top, in three groups: where you are (the pages), what's
-// playing (transport, which keeps going on every page), and what you can do
-// with the piece (undo, share, the File menu).
+// Outside a canvas this is the app nav. Inside, it is that canvas's bar:
+// back to the list, which view (notes or waves), and the controls for it.
 export function TopBar(props: Props) {
-  const { route, playing, recording, recordedSeconds, bpm, snap, canUndo, canRedo, fileMenu } = props;
+  const { route, canvasName, playing, recording, recordedSeconds, bpm, snap, canUndo, canRedo, fileMenu } = props;
+  const inside = insideCanvas(route);
   const tabs = useRef<HTMLElement>(null);
   useEffect(() => {
     const nav = tabs.current;
@@ -50,14 +58,21 @@ export function TopBar(props: Props) {
     else if (box.left < navBox.left + 4) nav.scrollLeft -= navBox.left - box.left + 12;
   }, [route]);
   return (
-    <header className="app-bar">
+    <header className={`app-bar${inside ? ' is-canvas' : ''}`}>
       <div className="app-bar-group">
-        <a className="brand" href={routeHref('canvas')} aria-label="Pulse Canvas">
-          <span className="brand-index">00</span>
-          <span className="brand-name">Pulse</span>
-        </a>
-        <nav className="tabs" aria-label="Pages" ref={tabs}>
-          {TABS.map((t, index) => (
+        {inside ? (
+          <a className="tab back" href={routeHref('canvases')}>
+            Canvases
+          </a>
+        ) : (
+          <a className="brand" href={routeHref('canvases')} aria-label="Pulse Canvas">
+            <span className="brand-index">00</span>
+            <span className="brand-name">Pulse</span>
+          </a>
+        )}
+        {inside && <span className="canvas-bar-name">{canvasName}</span>}
+        <nav className="tabs" aria-label={inside ? 'Canvas' : 'Pages'} ref={tabs}>
+          {(inside ? CANVAS_TABS : APP_TABS).map((t, index) => (
             <a
               key={t.route}
               href={routeHref(t.route)}
@@ -71,6 +86,7 @@ export function TopBar(props: Props) {
         </nav>
       </div>
 
+      {inside && (
       <div className="app-bar-group transport" role="group" aria-label="Transport">
         <button className={`play${playing ? ' is-on' : ''}`} onClick={props.onTogglePlay} title={`${playing ? 'Stop' : 'Play'} (Space)`}>
           {playing ? '■ Stop' : '▶ Play'}
@@ -102,7 +118,9 @@ export function TopBar(props: Props) {
           <span>Snap ¼</span>
         </label>
       </div>
+      )}
 
+      {inside && (
       <div className="app-bar-group actions">
         <button className="icon" onClick={props.onUndo} disabled={!canUndo} title={`Undo (${MOD}Z)`} aria-label="Undo">
           ↶
@@ -118,6 +136,7 @@ export function TopBar(props: Props) {
         </button>
         <Menu label={<>File ▾</>} title="File" items={fileMenu} />
       </div>
+      )}
     </header>
   );
 }

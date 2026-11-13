@@ -5,8 +5,8 @@ import { useCallback, useEffect, useState } from 'react';
 // with no server routing. A share link's fragment (#piece=…) isn't a route,
 // so it lands on the canvas.
 
-export type Route = 'canvas' | 'examples' | 'guide' | 'instruments';
-const PAGES: Route[] = ['examples', 'guide', 'instruments'];
+export type Route = 'canvases' | 'canvas' | 'waves' | 'examples' | 'guide' | 'instruments';
+const PAGES: Route[] = ['canvases', 'waves', 'examples', 'guide', 'instruments'];
 
 export const routeHref = (route: Route) => (route === 'canvas' ? '#/' : `#/${route}`);
 

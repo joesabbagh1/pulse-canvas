@@ -10,6 +10,9 @@
 //   length 1/8         (blocks) how long this block's note is, in beats
 //   delay 1/2          wait this many beats first
 //   route cycle        (blocks) which links to send down: all, cycle or random
+//   fast 2             (pattern blocks) play the pattern this many times in its length
+//   slow 2             (pattern blocks) stretch the pattern over this many pulses
+//   rev                (pattern blocks) play it backwards
 //
 // Any line can start with conditions, each ending in a colon:
 //   every 3: ...       on the 3rd, 6th, 9th… pulse through here
@@ -27,7 +30,9 @@ type Action =
   | { op: 'velocity'; level: number }
   | { op: 'length'; beats: number }
   | { op: 'delay'; beats: number }
-  | { op: 'route'; mode: RouteMode };
+  | { op: 'route'; mode: RouteMode }
+  | { op: 'fast'; factor: number }
+  | { op: 'rev' };
 
 interface Statement {
   when: Condition[];
@@ -56,12 +61,17 @@ export interface Outcome {
   length: number | null;
   delay: number;
   route: RouteMode;
+  /** Pattern blocks: how many times faster the pattern plays; below 1 is slower. */
+  fast: number;
+  /** Pattern blocks: play the pattern backwards. */
+  rev: boolean;
 }
 
 export const MAX_DELAY = 64;
 const MAX_TRANSPOSE = 48;
 const ROUTES: RouteMode[] = ['all', 'cycle', 'random'];
-const COMMANDS = 'drop, mute, transpose, velocity, length, delay or route';
+const COMMANDS = 'drop, mute, transpose, velocity, length, delay, route, fast, slow or rev';
+export const MAX_FAST = 16;
 
 /** "1/2", "0.5" or "2", as a non-negative number of beats. */
 function parseBeats(s: string): number {
@@ -134,6 +144,17 @@ function parseAction(text: string, target: Target): Action {
       blockOnly();
       if (ROUTES.includes(arg as RouteMode)) return { op: 'route', mode: arg as RouteMode };
       throw new Error(`"route" takes all, cycle or random.`);
+    case 'fast':
+    case 'slow': {
+      blockOnly();
+      const times = parseBeats(arg ?? '');
+      if (times >= 1 && times <= MAX_FAST) return { op: 'fast', factor: word === 'fast' ? times : 1 / times };
+      throw new Error(`"${word}" needs a number from 1 to ${MAX_FAST}, like "${word} 2".`);
+    }
+    case 'rev':
+      blockOnly();
+      noArg();
+      return { op: 'rev' };
     default:
       throw new Error(`"${word}" isn't a command; try ${target === 'block' ? COMMANDS : 'drop, transpose or delay'}.`);
   }
@@ -166,6 +187,8 @@ export const PASS: Readonly<Outcome> = {
   length: null,
   delay: 0,
   route: 'all',
+  fast: 1,
+  rev: false,
 };
 
 /** Runs a program for the `count`-th pulse (counting from 1) through its block or link. */
@@ -199,6 +222,12 @@ export function run(program: Program | undefined, count: number, random: () => n
         break;
       case 'route':
         out.route = action.mode;
+        break;
+      case 'fast':
+        out.fast = Math.min(MAX_FAST, Math.max(1 / MAX_FAST, out.fast * action.factor));
+        break;
+      case 'rev':
+        out.rev = !out.rev;
         break;
     }
   }

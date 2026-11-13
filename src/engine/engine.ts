@@ -5,7 +5,9 @@ import { HoldBook } from './holds';
 import { Mixer, type BusSettings } from './mixer';
 import { WavRecorder } from './recorder';
 import { loadSampleBytes } from './samples';
-import { Scheduler, type GraphBlock, type GraphLink, type NoteShape } from './scheduler';
+import { spanOf, type XY } from './geometry';
+import { compilePattern } from './pattern';
+import { Scheduler, patternHit, type BlockKind, type GraphBlock, type GraphLink, type NoteShape } from './scheduler';
 import { busWavesKey, type BusWaves } from './wave';
 
 // Sound is scheduled on the audio clock, a little ahead of time, never from
@@ -20,11 +22,15 @@ export interface Flash {
   shown: boolean;
   /** The note's velocity, so soft notes flash faintly. */
   strength: number;
+  /** A note inside a pattern block: where it is, and what played it. */
+  at?: XY;
+  kind?: BlockKind;
+  degree?: number;
 }
 
 export class Engine {
   readonly clock = new BeatClock(112);
-  readonly scheduler = new Scheduler((block, beat, shift, shape) => this.hit(block, beat, shift, shape));
+  readonly scheduler = new Scheduler((block, beat, shift, shape, at) => this.hit(block, beat, shift, shape, at));
   flashes: Flash[] = [];
 
   // Built lazily, since Tone nodes want a started context.
@@ -94,10 +100,20 @@ export class Engine {
     this.mixer?.park(this.buses, now);
   }
 
-  /** Play one block's sound right now, outside the pulse flow. */
+  /** Play one block's sound right now, outside the pulse flow. A pattern block plays one pass. */
   async audition(block: GraphBlock) {
     const mixer = await this.ensureAudio();
-    mixer.play(block, this.audioNow() + 0.01, this.clock.secondsPerBeat);
+    const start = this.audioNow() + 0.01;
+    const beat = this.clock.secondsPerBeat;
+    const span = spanOf(block);
+    if (!span) {
+      mixer.play(block, start, beat);
+      return;
+    }
+    for (const note of compilePattern(block.pattern ?? '').notes(0)) {
+      const hit = patternHit(block, note, span);
+      mixer.play(hit.block, start + note.at * span * beat, beat, { velocity: 1, length: hit.length });
+    }
   }
 
   /**
@@ -230,13 +246,19 @@ export class Engine {
   }
 
   /** `shift` is the pulse's transposition, in scale degrees. */
-  private hit(block: GraphBlock, beat: number, shift: number, shape: NoteShape) {
+  private hit(block: GraphBlock, beat: number, shift: number, shape: NoteShape, at?: XY) {
     // The region's groove shifts the sound only; the pulse already arrived on the beat.
     const groove = block.bus ? this.buses.get(block.bus)?.groove : undefined;
     const nudge = groove ? grooveNote(beat, groove, this.clock.secondsPerBeat) : { seconds: 0, velocity: 1 };
     const time = Math.max(this.clock.timeAt(beat) + nudge.seconds, this.audioNow() + 0.005);
     const felt = { ...shape, velocity: shape.velocity * nudge.velocity };
     this.mixer?.play({ ...block, degree: block.degree + shift }, time, this.clock.secondsPerBeat, felt);
-    this.flashes.push({ block: block.id, time, shown: false, strength: felt.velocity });
+    this.flashes.push({
+      block: block.id,
+      time,
+      shown: false,
+      strength: felt.velocity,
+      ...(at ? { at, kind: block.kind, degree: block.degree + shift } : {}),
+    });
   }
 }

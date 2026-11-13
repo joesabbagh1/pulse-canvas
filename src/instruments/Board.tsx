@@ -31,7 +31,7 @@ export function Board({
             <span className="board-open" aria-hidden="true" />
             {row
               .slice()
-              .sort((a, b) => a.along - b.along)
+              .sort((a, b) => a.note.hz - b.note.hz)
               .map((stop) => (
                 <NoteControl
                   key={`${index}-${stop.note.degree}`}
@@ -39,7 +39,6 @@ export function Board({
                   held={held.has(stop.note.degree)}
                   hint={hints.get(stop.note.degree)}
                   className="board-stop"
-                  style={fretted ? { left: `${8 + stop.along * 88}%` } : { top: `${8 + stop.along * 86}%` }}
                   onPointerDown={onPointerDown}
                   onPointerEnd={onPointerEnd}
                 >

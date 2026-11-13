@@ -11,6 +11,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@strudel/core": "1.2.6",
+    "@strudel/mini": "1.2.6",
     "@ui-sdk/core": "^0.1.0-beta.1",
     "@ui-sdk/react": "^0.1.0-beta.1",
     "@xyflow/react": "^12.12.1",

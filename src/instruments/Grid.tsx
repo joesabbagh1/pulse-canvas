@@ -17,7 +17,7 @@ export function NoteGrid({
   return (
     <div
       className={`note-grid${round ? ' is-round' : ''}`}
-      style={{ gridTemplateColumns: `repeat(${steps}, minmax(42px, 1fr))` }}
+      style={{ gridTemplateColumns: `repeat(${steps}, minmax(0, 1fr))` }}
       onContextMenu={onContextMenu}
       role="group"
       aria-label={round ? 'Buttons' : 'Grid'}

@@ -312,4 +312,176 @@ describe('Scheduler', () => {
       expect(shapes.find(([id]) => id === 'b')![1]).toEqual({ velocity: 1, length: null });
     });
   });
+
+  describe('pattern blocks', () => {
+    // start -> p -> b on one line. p is a box 2 beats long centred on 0, so its
+    // left edge is a beat from the start block and its right edge a beat from b.
+    const box = (pattern: string, code = '', beats = 2): GraphBlock => ({ ...block('p', 0, 0, 'tone', 0, code), pattern, beats });
+    function patch(p: GraphBlock, every = 0) {
+      const notes: [string, number, number][] = [];
+      const spots: (number | undefined)[] = [];
+      const lengths: (number | null)[] = [];
+      const velocities: number[] = [];
+      const s = new Scheduler((b, beat, _shift, shape, at) => {
+        if (b.kind === 'start') return;
+        notes.push([b.id === 'p' ? b.kind : b.id, b.degree, beat]);
+        spots.push(at?.x);
+        lengths.push(shape.length);
+        velocities.push(shape.velocity);
+      });
+      s.setGraph([block('s', -2 * B, 0, 'start', every), p, block('b', 2 * B, 0)], [link('s', 'p'), link('p', 'b')], 0);
+      return { s, notes, spots, lengths, velocities, p };
+    }
+
+    it('plays the pattern across its length, then sends the pulse on from its far edge', () => {
+      const { s, notes, spots, lengths } = patch(box('bd ~ 2 hh'));
+      s.start(0);
+      for (let beat = 0; beat <= 5; beat += 0.25) s.advance(beat);
+      expect(notes).toEqual([
+        ['tone', 0, 1],
+        ['tone', 2, 2],
+        ['tone', 0, 2.5],
+        ['b', 0, 4],
+      ]);
+      // Each note sits where its beat falls across the box; the last hit is the plain block.
+      expect(spots).toEqual([-B, 0, B / 2, undefined]);
+      // The block's voice holds each step. bd and hh do not switch it to drums.
+      expect(lengths).toEqual([0.5, 0.5, 0.5, null]);
+      expect(s.link('s-p')).toMatchObject({ beats: 1, gapStart: 30, gapEnd: 7 });
+      expect(s.link('p-b')).toMatchObject({ beats: 1, gapStart: 7, gapEnd: 30 });
+    });
+
+    it('sends notes only as far as it has been advanced, each one once', () => {
+      const { s, notes } = patch(box('0 1 2 3 4 5 6 7'));
+      s.start(0);
+      for (let beat = 0; beat <= 4; beat += 0.1) s.advance(beat);
+      expect(notes.filter(([id]) => id === 'tone').map(([, degree, beat]) => [degree, beat])).toEqual([
+        [0, 1],
+        [1, 1.25],
+        [2, 1.5],
+        [3, 1.75],
+        [4, 2],
+        [5, 2.25],
+        [6, 2.5],
+        [7, 2.75],
+      ]);
+    });
+
+    it('counts a pulse crossing the box as in flight, and keeps the pass until it is pruned', () => {
+      const { s } = patch(box('bd sd'));
+      s.start(0);
+      s.advance(1.5);
+      expect(s.inFlight()).toBe(1);
+      expect(s.runs).toMatchObject([{ block: 'p', start: 1, end: 3, cycle: 0 }]);
+      s.advance(3.5);
+      s.prune(3.5);
+      expect(s.runs).toEqual([]);
+    });
+
+    it('plays the next cycle of the pattern on each pulse', () => {
+      const { s, notes } = patch(box('<0 2 4>'), 2);
+      s.start(0);
+      s.advance(8.5);
+      expect(notes.filter(([id]) => id === 'tone').map(([, degree, beat]) => [degree, beat])).toEqual([
+        [0, 1],
+        [2, 3],
+        [4, 5],
+        [0, 7],
+      ]);
+    });
+
+    it('lets passes overlap when pulses arrive faster than the box is long', () => {
+      const { s, notes } = patch(box('0 1', '', 2), 1);
+      s.start(0);
+      for (let beat = 0; beat <= 3.5; beat += 0.25) s.advance(beat);
+      expect(notes.filter(([id]) => id === 'tone').map(([, degree, beat]) => [degree, beat])).toEqual([
+        [0, 1],
+        [1, 2],
+        [0, 2],
+        [1, 3],
+        [0, 3],
+      ]);
+    });
+
+    it('takes the block pitch and the pulse transposition, and its code shapes every note', () => {
+      const { s, notes, velocities, lengths } = patch({ ...box('0 2 piano:1', 'velocity 50%\nlength 1/8'), degree: 3 });
+      s.start(0);
+      s.advance(3);
+      expect(notes.slice(0, 3).map(([kind, degree]) => [kind, degree])).toEqual([
+        ['tone', 3],
+        ['tone', 5],
+        ['tone', 4],
+      ]);
+      expect(velocities.slice(0, 3)).toEqual([0.5, 0.5, 0.5]);
+      expect(lengths.slice(0, 3)).toEqual([0.125, 0.125, 0.125]);
+    });
+
+    it('"fast", "slow" and "rev" change how a pass plays', () => {
+      const degrees = (code: string, every = 0, until = 3.5) => {
+        const { s, notes } = patch(box('0 1 2 3', code), every);
+        s.start(0);
+        s.advance(until);
+        return notes.filter(([id]) => id === 'tone').map(([, degree]) => degree);
+      };
+      expect(degrees('fast 2')).toEqual([0, 1, 2, 3, 0, 1, 2, 3]);
+      expect(degrees('rev')).toEqual([3, 2, 1, 0]);
+      expect(degrees('slow 2', 2, 4.5)).toEqual([0, 1, 2, 3]);
+      expect(degrees('every 2: rev', 2, 5)).toEqual([0, 1, 2, 3, 3, 2, 1, 0]);
+    });
+
+    it('plays the block\'s instrument, whatever the pattern names', () => {
+      const { s, notes } = patch({ ...box('bd sd hh'), kind: 'piano', degree: 5 });
+      s.start(0);
+      s.advance(3);
+      expect(notes.filter(([kind]) => kind === 'piano').map(([, degree]) => degree)).toEqual([5, 5, 5]);
+    });
+
+    it('"mute" crosses the box in silence, and "drop" never enters it', () => {
+      const muted = patch(box('bd sd', 'mute'));
+      muted.s.start(0);
+      muted.s.advance(5);
+      expect(muted.notes).toEqual([['b', 0, 4]]);
+
+      const dropped = patch(box('bd sd', 'drop'));
+      dropped.s.start(0);
+      dropped.s.advance(5);
+      expect(dropped.notes).toEqual([]);
+    });
+
+    it('keeps playing the last pattern that parsed while a new one has a mistake', () => {
+      const { s, notes, p } = patch(box('0 1'), 2);
+      s.start(0);
+      s.advance(2.5);
+      s.setGraph([block('s', -2 * B, 0, 'start', 2), { ...p, pattern: '0 [1' }, block('b', 2 * B, 0)], [link('s', 'p'), link('p', 'b')], 2.5);
+      s.advance(4.5);
+      expect(notes.filter(([id]) => id === 'tone').map(([, degree, beat]) => [degree, beat])).toEqual([
+        [0, 1],
+        [1, 2],
+        [0, 3],
+        [1, 4],
+      ]);
+    });
+
+    it('a pattern edited mid-pass plays its new notes from there on', () => {
+      const { s, notes, p } = patch(box('0 1 2 3'));
+      s.start(0);
+      s.advance(1.9);
+      s.setGraph([block('s', -2 * B, 0, 'start'), { ...p, pattern: '7 7 7 7' }, block('b', 2 * B, 0)], [link('s', 'p'), link('p', 'b')], 1.9);
+      s.advance(3);
+      expect(notes.filter(([id]) => id === 'tone').map(([, degree]) => degree)).toEqual([0, 1, 7, 7]);
+    });
+
+    it('a loop through a pattern lasts its links plus the pattern', () => {
+      const hits: number[] = [];
+      const s = new Scheduler((b, beat) => {
+        if (b.id === 'b') hits.push(beat);
+      });
+      const blocks = [block('s', -2 * B, 0, 'start'), box('bd'), block('b', 2 * B, 0)];
+      s.setGraph(blocks, [link('s', 'p'), link('p', 'b'), link('b', 'p')], 0);
+      s.start(0);
+      s.advance(20);
+      // In at 1, out at 3, b at 4, back across 3 beats to the left edge at 7, and so on.
+      expect(hits).toEqual([4, 10, 16]);
+    });
+  });
 });

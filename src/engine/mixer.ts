@@ -164,6 +164,11 @@ export class Mixer {
   readonly output = new Tone.Limiter(-1).toDestination();
   private canvas = new Bus(this.output);
   private buses = new Map<string, Bus>();
+  /**
+   * Live notes skip the piece reverb. Its impulse is decaying noise, so a held
+   * note was coming out under a steady hiss.
+   */
+  private live = new Voices(this.output);
 
   /** `samples` holds decoded samples by id; the engine fills it. */
   constructor(private samples: ReadonlyMap<string, Tone.ToneAudioBuffer>) {}
@@ -185,7 +190,10 @@ export class Mixer {
 
   /** The drawn cycles and cutoff motions, keyed by region id. '' is the canvas. */
   install(program: ReadonlyMap<string, BusWaves>) {
-    this.canvas.install(program.get(CANVAS) ?? EMPTY_BUS_WAVES);
+    const canvas = program.get(CANVAS) ?? EMPTY_BUS_WAVES;
+    this.canvas.install(canvas);
+    this.live.setCycle(canvas.cycle);
+    this.live.setInstrumentPrograms(canvas.instruments);
     for (const [id, bus] of this.buses) bus.install(program.get(id) ?? EMPTY_BUS_WAVES);
   }
 
@@ -205,15 +213,14 @@ export class Mixer {
     bus.voices.play(block, time, secondsPerBeat, sampleId ? this.samples.get(sampleId) : undefined, shape);
   }
 
-  /** A live note on the canvas bus. It holds until the gate is released. */
+  /** A live note, dry. It holds until the gate is released. */
   attack(block: GraphBlock, time: number, secondsPerBeat: number, velocity: number): NoteGate {
-    const bus = this.canvas;
-    const sampleId = bus.settings?.sample;
-    return bus.voices.attack(block, time, secondsPerBeat, velocity, sampleId ? this.samples.get(sampleId) : undefined);
+    return this.live.attack(block, time, secondsPerBeat, velocity);
   }
 
   silence(time: number) {
     this.canvas.voices.silence(time);
+    this.live.silence(time);
     for (const bus of this.buses.values()) bus.voices.silence(time);
   }
 }

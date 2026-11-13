@@ -30,7 +30,7 @@ interface Props {
   snap: boolean;
   /** Pencil is on: a drag on empty canvas draws a cycle. */
   drawing: boolean;
-  /** Beats is showing: waves stay visible, faintly, and can't be grabbed. */
+  /** The canvas page is showing: waves stay visible, faintly, and can't be grabbed. */
   ghost: boolean;
   engine: Engine;
   onSelect: (id: string | null) => void;

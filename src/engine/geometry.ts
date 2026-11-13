@@ -17,6 +17,55 @@ export interface XY {
   y: number;
 }
 
+// A pattern block is a box as wide as its length in beats, so distance stays
+// time inside it too: a pulse goes in at the left edge, crosses the box while
+// the pattern plays, and comes out at the right edge. A plain block is a disc
+// with no length; links meet it at its centre.
+export const BOX_HEIGHT = 92;
+export const PORT_R = 7;
+export const MIN_SPAN = GRID;
+export const MAX_SPAN = 32;
+export const DEFAULT_SPAN = 2;
+
+/** How many beats a pulse takes to cross the block: its length for a pattern block, 0 for a disc. */
+export function spanOf(block: { pattern?: string; beats?: number }): number {
+  if (block.pattern === undefined) return 0;
+  const beats = block.beats;
+  return typeof beats === 'number' && Number.isFinite(beats) ? Math.min(MAX_SPAN, Math.max(MIN_SPAN, beats)) : DEFAULT_SPAN;
+}
+
+/** Where links into a block end. `at` is the block's centre. */
+export function inPort(at: XY, span: number): XY {
+  return span ? { x: at.x - (span * PX_PER_BEAT) / 2, y: at.y } : at;
+}
+
+/** Where links out of a block begin. */
+export function outPort(at: XY, span: number): XY {
+  return span ? { x: at.x + (span * PX_PER_BEAT) / 2, y: at.y } : at;
+}
+
+/** A block's centre plus the pattern fields that decide where its ports sit. */
+export interface SpanPoint extends XY {
+  pattern?: string;
+  beats?: number;
+}
+
+/** The link from one block's out port to another's in port. Discs have no length, so theirs are their centres. */
+export function linkBetween(a: SpanPoint, b: SpanPoint, bends: readonly XY[], offset: number): LinkPath {
+  return linkPath(outPort(a, spanOf(a)), inPort(b, spanOf(b)), bends, offset);
+}
+
+/** How much of a link's end is hidden under the block it meets. */
+export function portGap(span: number): number {
+  return span ? PORT_R : BLOCK_R;
+}
+
+/** The pixel size of a pattern box. Null for a disc, which is measured from its own element. */
+export function patternFrame(block: { pattern?: string; beats?: number }): { width: number; height: number } | null {
+  const span = spanOf(block);
+  return span ? { width: span * PX_PER_BEAT, height: BOX_HEIGHT } : null;
+}
+
 /** A point on a link, with the direction a pulse travels there. */
 export interface PathPoint extends XY {
   ux: number;

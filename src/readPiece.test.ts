@@ -79,6 +79,18 @@ describe('readPiece', () => {
     expect(readPiece({ ...base, blocks: Array.from({ length: 5000 }, (_, i) => tone(`b${i}`)) }).blocks).toHaveLength(2000);
   });
 
+  it('keeps a pattern and its length, and will not put one on a start block', () => {
+    const piece = readPiece({
+      ...base,
+      blocks: [tone('a', { pattern: 'bd  sd', beats: 3 }), tone('s', { kind: 'start', pattern: 'bd', beats: 4 }), tone('b', { pattern: 'hh*9', beats: 100 })],
+    });
+    expect(piece.blocks.map((b) => [b.id, b.pattern, b.beats])).toEqual([
+      ['a', 'bd sd', 3],
+      ['s', undefined, undefined],
+      ['b', 'hh*9', 32],
+    ]);
+  });
+
   it('keeps one-letter performance keys and a clamped groove, and drops the rest', () => {
     const piece = readPiece({
       ...base,

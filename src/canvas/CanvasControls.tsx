@@ -8,8 +8,6 @@ import type { Stamp } from '../engine/wave';
 
 const indexOf = (n: number) => String(n).padStart(2, '0');
 
-export type Layer = 'beats' | 'waves';
-
 const STAMPS: { stamp: Stamp; label: string; hint: string }[] = [
   { stamp: 'saw', label: 'Saw', hint: 'A bright ramp. Drag the points to bend it' },
   { stamp: 'square', label: 'Square', hint: 'A hollow pulse' },
@@ -17,38 +15,29 @@ const STAMPS: { stamp: Stamp; label: string; hint: string }[] = [
   { stamp: 'decay', label: 'Decay', hint: 'A cutoff sweep, two beats long. Width is the loop' },
 ];
 
-/** The palette along the bottom. Beats drops blocks; Waves draws the synth. */
+/** The palette along the bottom. The canvas page drops blocks; the waves page draws the synth. */
 export function AddDock({
-  layer,
+  waves,
   pencil,
-  onLayer,
   onPencil,
   onAdd,
+  onAddPattern,
   onAddRegion,
   onStamp,
 }: {
-  layer: Layer;
+  waves: boolean;
   pencil: boolean;
-  onLayer: (layer: Layer) => void;
   onPencil: () => void;
   onAdd: (kind: BlockKind) => void;
+  onAddPattern: () => void;
   onAddRegion: () => void;
   onStamp: (stamp: Stamp) => void;
 }) {
   const [category, setCategory] = useState<CategoryId>('keys');
   const family = CATEGORIES.find((c) => c.id === category) ?? CATEGORIES[0];
   return (
-    <Panel position="bottom-center" className="dock" aria-label="Add to the canvas">
-      <div className="dock-layers" role="group" aria-label="Layer">
-        <button className={layer === 'beats' ? 'is-on' : ''} aria-pressed={layer === 'beats'} onClick={() => onLayer('beats')}>
-          Beats
-        </button>
-        <button className={layer === 'waves' ? 'is-on' : ''} aria-pressed={layer === 'waves'} onClick={() => onLayer('waves')}>
-          Waves
-        </button>
-      </div>
-      <span className="dock-divider" aria-hidden="true" />
-      {layer === 'beats' ? (
+    <Panel position="bottom-center" className="dock" aria-label={waves ? 'Draw a wave' : 'Add to the canvas'}>
+      {!waves ? (
         <>
           <button className="dock-item dock-start" onClick={() => onAdd('start')} title="Start: sends out a pulse when you press play" aria-label="Add start">
             <span className="dock-swatch" aria-hidden="true" />
@@ -58,7 +47,14 @@ export function AddDock({
             <PopoverTrigger className="dock-item" title="Instruments, grouped by family">
               <span className="dock-text">Instruments</span>
             </PopoverTrigger>
-            <PopoverContent className="instrument-palette" side="top" align="center" sideOffset={8} aria-label="Instruments">
+            <PopoverContent
+              className="instrument-palette"
+              side="top"
+              align="center"
+              sideOffset={8}
+              aria-label="Instruments"
+              onWheel={(event) => event.stopPropagation()}
+            >
               <Tabs value={category} onValueChange={(next) => next && setCategory(next)}>
                 <TabsList className="palette-categories" aria-label="Instrument family">
                   {CATEGORIES.map((item, index) => (
@@ -89,6 +85,15 @@ export function AddDock({
             </PopoverContent>
           </Popover>
           <span className="dock-divider" aria-hidden="true" />
+          <button
+            className="dock-item dock-pattern"
+            onClick={onAddPattern}
+            title="Pattern: a box as long as its loop. It plays this block's instrument. 0 2 4 are degrees above its pitch."
+            aria-label="Add pattern"
+          >
+            <span className="dock-swatch" aria-hidden="true" />
+            <span className="dock-text">Pattern</span>
+          </button>
           <button
             className="dock-item dock-region"
             onClick={onAddRegion}

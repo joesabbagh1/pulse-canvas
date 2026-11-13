@@ -1,7 +1,8 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 import { CodeField } from './CodeField';
 import { KeyField } from './KeyField';
-import { GRID, formatBeats, parseLength } from './engine/geometry';
+import { GRID, MAX_SPAN, MIN_SPAN, formatBeats, parseLength, spanOf } from './engine/geometry';
+import { PATTERN_REFERENCE, compilePattern, starterPattern } from './engine/pattern';
 import { CATEGORIES, instrumentById, instrumentsIn } from './engine/instruments';
 import { hasPitch, type BlockKind } from './engine/scheduler';
 import { describePitch, type Scale, type Tuning } from './engine/tuning';
@@ -123,7 +124,13 @@ export function Inspector(props: Props) {
         <div className="inspector-title" data-n="03">
           Link
         </div>
-        <LengthField beats={link.beats} minBeats={link.minBeats} snap={snap} onSet={onLinkLength} />
+        <LengthField
+          beats={link.beats}
+          minBeats={link.minBeats}
+          snap={snap}
+          onSet={onLinkLength}
+          hint="How long a pulse takes to travel it. Type a length, or drag the link to bend it."
+        />
         {link.bends > 0 && (
           <p className="muted">
             {link.bends === 1 ? '1 bend' : `${link.bends} bends`}. Drag one to move it; double-click it to remove it.
@@ -154,8 +161,9 @@ export function Inspector(props: Props) {
 
       <Select
         ariaLabel="Instrument"
+        searchable
         value={kind}
-        onChange={(value) => set({ kind: value as BlockKind })}
+        onChange={(value) => set(value === 'start' ? { kind: 'start', pattern: undefined, beats: undefined } : { kind: value as BlockKind })}
         groups={[
           { options: [{ value: 'start', label: 'Start' }] },
           ...CATEGORIES.map((category) => ({
@@ -207,6 +215,17 @@ export function Inspector(props: Props) {
         <KeyField value={node.data.key} does="fires this block while playing" taken={takenKeys} onChange={(key) => set({ key })} />
       )}
 
+      {kind !== 'start' && (
+        <PatternFields
+          pattern={node.data.pattern}
+          beats={spanOf(node.data)}
+          snap={snap}
+          onPattern={(pattern) => set(pattern === undefined ? { pattern: undefined, beats: undefined } : { pattern, beats: spanOf({ pattern, beats: node.data.beats }) })}
+          onBeats={(beats) => set({ beats })}
+          starter={starterPattern(kind)}
+        />
+      )}
+
       <CodeField value={node.data.code ?? ''} target="block" onChange={(code) => set({ code })} />
 
       <div className="row">
@@ -226,7 +245,95 @@ const EPS = 1e-6;
 // A link's length: type it ("1¾", "7/4", "1.75") or step it a quarter beat at
 // a time, and the link bends to fit. It can't get shorter than the straight
 // line between its blocks, so that's the floor, and the field says so.
-function LengthField({ beats, minBeats, snap, onSet }: { beats: number; minBeats: number; snap: boolean; onSet: (beats: number) => void }) {
+function PatternFields({
+  pattern,
+  beats,
+  snap,
+  starter,
+  onPattern,
+  onBeats,
+}: {
+  pattern: string | undefined;
+  beats: number;
+  snap: boolean;
+  starter: string;
+  onPattern: (pattern: string | undefined) => void;
+  onBeats: (beats: number) => void;
+}) {
+  const on = pattern !== undefined;
+  const error = on ? compilePattern(pattern).error : null;
+  return (
+    <div className="field">
+      <span className="field-label">Pattern</span>
+      <div className="segmented" role="group" aria-label="Block shape">
+        <button className={on ? '' : 'is-on'} aria-pressed={!on} onClick={() => on && onPattern(undefined)}>
+          Disc
+        </button>
+        <button className={on ? 'is-on' : ''} aria-pressed={on} onClick={() => !on && onPattern(starter)}>
+          Pattern
+        </button>
+      </div>
+      {on && (
+        <>
+          <input
+            type="text"
+            aria-label="Pattern"
+            aria-invalid={!!error}
+            spellCheck={false}
+            autoCapitalize="off"
+            autoComplete="off"
+            placeholder="0 2 4"
+            value={pattern}
+            onChange={(e) => onPattern(e.target.value)}
+          />
+          <LengthField
+            beats={beats}
+            minBeats={MIN_SPAN}
+            maxBeats={MAX_SPAN}
+            snap={snap}
+            onSet={(next) => onBeats(snap ? Math.round(next / GRID) * GRID : next)}
+            hint="How long a pulse takes to cross the box. Drag its right edge, or type a length."
+          />
+          {error ? (
+            <span className="warn">{error}</span>
+          ) : (
+            <details className="code-help">
+              <summary className="muted">What can a pattern say?</summary>
+              <dl>
+                {PATTERN_REFERENCE.map(([example, what]) => (
+                  <div key={example}>
+                    <dt>
+                      <code>{example}</code>
+                    </dt>
+                    <dd className="muted">{what}</dd>
+                  </div>
+                ))}
+              </dl>
+              <p className="muted">One pass lasts the length of the box. The next pulse plays the next pass, so &lt;0 2 4&gt; alternates.</p>
+            </details>
+          )}
+        </>
+      )}
+      {!on && <span className="muted">A pattern is a box: the pulse plays it while crossing, then goes on.</span>}
+    </div>
+  );
+}
+
+function LengthField({
+  beats,
+  minBeats,
+  maxBeats = Infinity,
+  snap,
+  onSet,
+  hint,
+}: {
+  beats: number;
+  minBeats: number;
+  maxBeats?: number;
+  snap: boolean;
+  onSet: (beats: number) => void;
+  hint: string;
+}) {
   const shown = formatBeats(beats, snap);
   const [text, setText] = useState(shown);
   const [editing, setEditing] = useState(false);
@@ -240,7 +347,14 @@ function LengthField({ beats, minBeats, snap, onSet }: { beats: number; minBeats
   const floor = snap ? Math.ceil(minBeats / GRID - EPS) * GRID : Math.ceil(minBeats * 100 - EPS) / 100;
   const apply = (value: number) => {
     if (!(value > 0)) return setError('Type a length in beats, like 1¾, 7/4 or 1.75.');
-    if (value < minBeats - EPS) return setError(`It can't be shorter than ${formatBeats(floor, snap)} without moving a block.`);
+    if (value < minBeats - EPS) {
+      return setError(
+        maxBeats < Infinity
+          ? `The shortest is ${formatBeats(minBeats, snap)}.`
+          : `It can't be shorter than ${formatBeats(floor, snap)} without moving a block.`,
+      );
+    }
+    if (value > maxBeats + EPS) return setError(`The longest is ${formatBeats(maxBeats, snap)}.`);
     setError('');
     onSet(value);
   };
@@ -279,15 +393,11 @@ function LengthField({ beats, minBeats, snap, onSet }: { beats: number; minBeats
           }}
         />
         <span className="muted">beats</span>
-        <button className="icon" aria-label="Longer" title="A quarter beat longer" onClick={() => apply(longer)}>
+        <button className="icon" aria-label="Longer" title="A quarter beat longer" disabled={longer > maxBeats + EPS} onClick={() => apply(longer)}>
           +
         </button>
       </div>
-      {error ? (
-        <span className="warn">{error}</span>
-      ) : (
-        <span className="muted">How long a pulse takes to travel it. Type a length, or drag the link to bend it.</span>
-      )}
+      {error ? <span className="warn">{error}</span> : <span className="muted">{hint}</span>}
     </div>
   );
 }
