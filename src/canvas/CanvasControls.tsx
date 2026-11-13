@@ -1,6 +1,12 @@
 import { Panel, useReactFlow, useStore } from '@xyflow/react';
+import { Popover, PopoverContent, PopoverTrigger } from '@ui-sdk/react/popover';
+import { Tabs, TabsList, TabsPanel, TabsTab } from '@ui-sdk/react/tabs';
+import { useState, type CSSProperties } from 'react';
+import { CATEGORIES, instrumentsIn, isInstrumentId, type CategoryId } from '../engine/instruments';
 import type { BlockKind } from '../engine/scheduler';
 import type { Stamp } from '../engine/wave';
+
+const indexOf = (n: number) => String(n).padStart(2, '0');
 
 export type Layer = 'beats' | 'waves';
 
@@ -9,18 +15,6 @@ const STAMPS: { stamp: Stamp; label: string; hint: string }[] = [
   { stamp: 'square', label: 'Square', hint: 'A hollow pulse' },
   { stamp: 'sine', label: 'Sine', hint: 'A plain tone, ready to mess up' },
   { stamp: 'decay', label: 'Decay', hint: 'A cutoff sweep, two beats long. Width is the loop' },
-];
-
-const KINDS: { kind: BlockKind; label: string; hint: string }[] = [
-  { kind: 'start', label: 'Start', hint: 'Sends out a pulse when you press play' },
-  { kind: 'tone', label: 'Tone', hint: 'A sustained pitch from the scale' },
-  { kind: 'pluck', label: 'Pluck', hint: 'A plucked string, pitched from the scale' },
-  { kind: 'bass', label: 'Bass', hint: 'A low voice of its own, pitched from the scale' },
-  { kind: 'jawharp', label: 'Jaw harp', hint: 'A plucked metal tongue. The note is one of its harmonics' },
-  { kind: 'khuur', label: 'Khuur', hint: 'A morin khuur: bowed horsehead fiddle, with a drone a fifth away' },
-  { kind: 'kick', label: 'Kick', hint: 'A bass drum' },
-  { kind: 'snare', label: 'Snare', hint: 'A snare drum' },
-  { kind: 'hat', label: 'Hat', hint: 'A hi-hat' },
 ];
 
 /** The palette along the bottom. Beats drops blocks; Waves draws the synth. */
@@ -41,6 +35,8 @@ export function AddDock({
   onAddRegion: () => void;
   onStamp: (stamp: Stamp) => void;
 }) {
+  const [category, setCategory] = useState<CategoryId>('keys');
+  const family = CATEGORIES.find((c) => c.id === category) ?? CATEGORIES[0];
   return (
     <Panel position="bottom-center" className="dock" aria-label="Add to the canvas">
       <div className="dock-layers" role="group" aria-label="Layer">
@@ -54,13 +50,44 @@ export function AddDock({
       <span className="dock-divider" aria-hidden="true" />
       {layer === 'beats' ? (
         <>
-          <span className="dock-label">Add</span>
-          {KINDS.map(({ kind, label, hint }) => (
-            <button key={kind} className={`dock-item dock-${kind}`} onClick={() => onAdd(kind)} title={`${label}: ${hint}`} aria-label={`Add ${label.toLowerCase()}`}>
-              <span className="dock-swatch" aria-hidden="true" />
-              <span className="dock-text">{label}</span>
-            </button>
-          ))}
+          <button className="dock-item dock-start" onClick={() => onAdd('start')} title="Start: sends out a pulse when you press play" aria-label="Add start">
+            <span className="dock-swatch" aria-hidden="true" />
+            <span className="dock-text">Start</span>
+          </button>
+          <Popover modal={false}>
+            <PopoverTrigger className="dock-item" title="Instruments, grouped by family">
+              <span className="dock-text">Instruments</span>
+            </PopoverTrigger>
+            <PopoverContent className="instrument-palette" side="top" align="center" sideOffset={8} aria-label="Instruments">
+              <Tabs value={category} onValueChange={(next) => next && setCategory(next)}>
+                <TabsList className="palette-categories" aria-label="Instrument family">
+                  {CATEGORIES.map((item, index) => (
+                    <TabsTab key={item.id} value={item.id} data-n={indexOf(index + 1)}>
+                      {item.label}
+                    </TabsTab>
+                  ))}
+                </TabsList>
+                <TabsPanel value={family.id} className="palette-instruments">
+                  {instrumentsIn(family.id).map((inst, index) => (
+                    <button
+                      key={inst.id}
+                      type="button"
+                      className="palette-item"
+                      data-n={indexOf(index + 1)}
+                      onClick={() => {
+                        if (isInstrumentId(inst.id)) onAdd(inst.id);
+                      }}
+                      title={inst.hint}
+                      aria-label={`Add ${inst.name.toLowerCase()}`}
+                    >
+                      <span className="dock-swatch" style={{ '--c': `hsl(${family.hue} 62% 58%)` } as CSSProperties} aria-hidden="true" />
+                      <span>{inst.name}</span>
+                    </button>
+                  ))}
+                </TabsPanel>
+              </Tabs>
+            </PopoverContent>
+          </Popover>
           <span className="dock-divider" aria-hidden="true" />
           <button
             className="dock-item dock-region"

@@ -91,6 +91,7 @@ class Bus {
   /** Takes a new cycle and new motions. Marks the filter curve stale. */
   install(spec: BusWaves) {
     this.voices.setCycle(spec.cycle);
+    this.voices.setInstrumentPrograms(spec.instruments);
     this.motions = spec.motions;
     this.dirty = true;
   }
@@ -102,6 +103,7 @@ class Bus {
   advance(baseTone: number, clock: BeatClock, now: number, until: number) {
     if (!this.motions.length) {
       this.release(now);
+      this.voices.advanceInstruments(baseTone, clock, now, until);
       return;
     }
     const hzAt = (time: number) => toneHz(movedTone(baseTone, motionSum(this.motions, clock.beatAt(time))));
@@ -117,6 +119,7 @@ class Bus {
       this.filter.frequency.linearRampToValueAtTime(hzAt(next), next);
       this.scheduledTo = next;
     }
+    this.voices.advanceInstruments(baseTone, clock, now, until);
   }
 
   /** While stopped, hold the filter where the motion is at beat 0 (the left edge). */
@@ -125,11 +128,13 @@ class Bus {
     this.scheduledTo = 0;
     if (!this.motions.length) {
       this.release(now);
+      this.voices.parkInstruments(baseTone, now);
       return;
     }
     this.automated = true;
     this.filter.frequency.cancelScheduledValues(now);
     this.filter.frequency.rampTo(toneHz(movedTone(baseTone, motionSum(this.motions, 0))), 0.04);
+    this.voices.parkInstruments(baseTone, now);
   }
 
   /** Hands the filter back to the tone slider. */

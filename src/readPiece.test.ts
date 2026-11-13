@@ -101,7 +101,55 @@ describe('readPiece', () => {
       ],
     });
     expect(piece.waves).toEqual([{ id: 'saw', role: 'cycle', points: [{ x: 0, y: -10 }, { x: 240, y: 10 }] }]);
+    const aimed = readPiece({
+      ...base,
+      waves: [
+        { id: 'bow', role: 'cycle', instrument: 'bass', points: [{ x: 0, y: 0 }, { x: 80, y: 10 }] },
+        { id: 'nope', role: 'cycle', instrument: 'laser', points: [{ x: 0, y: 0 }, { x: 80, y: 10 }] },
+      ],
+    });
+    const drawn = aimed.waves ?? [];
+    expect(drawn[0]).toMatchObject({ id: 'bow', instrument: 'bass' });
+    expect(drawn[1]).not.toHaveProperty('instrument');
     expect(readPiece(base).waves).toEqual([]);
+  });
+
+  it('keeps a recorded take and drops one that is not', () => {
+    const notes = Array.from({ length: 70 }, (_, i) => ({ beat: i * 0.01, degree: 0, beats: 0.25, velocity: 1 }));
+    const piece = readPiece({
+      ...base,
+      takes: [
+        {
+          id: 't1',
+          name: 'Tone 1',
+          instrument: 'tone',
+          notes: [
+            { beat: 0, degree: 4, beats: 1, velocity: 0.5 },
+            { beat: 'late', degree: 1, beats: 1, velocity: 1 },
+            { beat: 1, degree: 999, beats: 0.25, velocity: 4 },
+          ],
+        },
+        { id: 'nope', name: 'Laser', instrument: 'laser', notes: [{ beat: 0, degree: 0, beats: 1, velocity: 1 }] },
+        { name: 'missing id', instrument: 'bass', notes: [{ beat: 0, degree: 0, beats: 1, velocity: 1 }] },
+        { id: 't1', name: 'Duplicate', instrument: 'pluck', notes: [{ beat: 0, degree: 0, beats: 1, velocity: 1 }] },
+        { id: 'snare', instrument: 'snare', notes },
+      ],
+    });
+    expect(piece.takes?.[0]).toEqual({
+      id: 't1',
+      name: 'Tone 1',
+      instrument: 'tone',
+      notes: [
+        { beat: 0, degree: 4, beats: 1, velocity: 0.5 },
+        { beat: 1, degree: 200, beats: 0.25, velocity: 1 },
+      ],
+    });
+    expect(piece.takes?.map((take) => take.id)).toEqual(['t1', 'snare']);
+    expect(piece.takes?.[1].notes).toHaveLength(64);
+    expect(piece.takes?.[1].name).toBe('Snare');
+    const many = Array.from({ length: 40 }, (_, i) => ({ id: `t${i}`, instrument: 'hat', notes: [] }));
+    expect(readPiece({ ...base, takes: many }).takes).toHaveLength(32);
+    expect(readPiece(base).takes).toEqual([]);
   });
 });
 

@@ -69,9 +69,9 @@ const SECTIONS: Section[] = [
           <tr>
             <td>Sounds</td>
             <td>
-              <b>Tone</b> is the sustained synth, <b>pluck</b> a string, and <b>bass</b> a low voice of its own. <b>Jaw harp</b>{' '}
-              is a plucked metal tongue, and <b>khuur</b> a bowed morin khuur. <b>Kick</b>, <b>snare</b> and <b>hat</b> are
-              drums. A region's sample replaces its tones; the other instruments keep their voices.
+              <b>Instruments</b> opens the families: keyboards, bowed and plucked strings, winds, brass, percussion,
+              voice, and synths. <b>Tone</b> is the sustained synth. A drawn cycle or a region's sample replaces it; every
+              other instrument keeps its own voice.
             </td>
           </tr>
           <tr>
@@ -127,17 +127,18 @@ const SECTIONS: Section[] = [
           the region its middle sits in, and it moves when that region moves.
         </p>
         <p>
-          A <b>cycle</b> is one period of the oscillator, and it replaces the plain tone for that region. Up from the
-          dashed line is the top of the wave. <b>Saw</b>, <b>square</b> and <b>sine</b> drop a shape; the <b>pencil</b>{' '}
-          draws one. Drag a point to reshape it, drag the line to add a point, double-click a point to remove it, and drag
-          the name to move the whole drawing. When a region has several cycles, the newest one is the tone. A loaded
-          sample still plays instead.
+          A <b>cycle</b> is one period of an oscillator. Left on the region, it replaces Tone. Aim it at an instrument,
+          and it replaces that instrument's tone instead: a violin, a flute, the jaw harp. Up from the dashed line is the
+          top of the wave. <b>Saw</b>, <b>square</b> and <b>sine</b> drop a shape; the <b>pencil</b> draws one. Drag a
+          point to reshape it, drag the line to add a point, double-click a point to remove it, and drag the name to move
+          the whole drawing. When one target has several cycles, the newest one is the one you hear. A loaded sample
+          still plays instead of Tone.
         </p>
         <p>
           A <b>cutoff</b> motion loops, and its width is the loop in beats — the same pixels-to-beats rule as a link.{' '}
-          <b>Decay</b> drops a two-beat sweep. Height bends the region's Tone filter around the Tone slider, and motions
-          in one region add together. A dot rides the line while it plays. Turn the pencil off (or drag with the middle
-          button) to pan.
+          <b>Decay</b> drops a two-beat sweep. On the region, height bends the Tone filter around the Tone slider. Aim it
+          at one instrument and only that instrument's filter moves. Motions on the same target add together. A dot rides
+          the line while it plays. Turn the pencil off (or drag with the middle button) to pan.
         </p>
       </>
     ),

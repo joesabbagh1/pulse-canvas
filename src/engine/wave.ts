@@ -18,6 +18,11 @@ export interface Wave {
   id: string;
   role: WaveRole;
   points: XY[];
+  /**
+   * Instrument this drawing sounds on. Absent means the region: a cycle
+   * replaces Tone, and a cutoff bends the filter everything in the region shares.
+   */
+  instrument?: string;
 }
 
 export type Stamp = 'saw' | 'square' | 'sine' | 'decay';
@@ -40,12 +45,22 @@ export interface MotionCurve {
   beats: number;
 }
 
-export interface BusWaves {
+/** A cycle and the cutoff motions aimed at one instrument. */
+export interface InstrumentProgram {
   cycle: Partials | null;
   motions: MotionCurve[];
 }
 
-export const EMPTY_BUS_WAVES: BusWaves = { cycle: null, motions: [] };
+export interface BusWaves {
+  /** The cycle that replaces Tone. Null when the region has no untargeted cycle. */
+  cycle: Partials | null;
+  /** Cutoff motions for the whole region. Instrument motions are not in here. */
+  motions: MotionCurve[];
+  /** Keyed by instrument id. The last cycle for that instrument is the one that sounds. */
+  instruments: Map<string, InstrumentProgram>;
+}
+
+export const EMPTY_BUS_WAVES: BusWaves = { cycle: null, motions: [], instruments: new Map() };
 
 export function waveBounds(points: readonly XY[]): WaveBounds {
   let minX = Infinity;
@@ -161,34 +176,47 @@ export function wavePartials(samples: readonly number[], harmonics = MAX_PARTIAL
   return { real, imag };
 }
 
+/** Region bus, or that bus plus an instrument, so two cycles can both sound. */
+function waveTarget(region: string, instrument?: string) {
+  return instrument ? `${region}/${instrument}` : region;
+}
+
 /**
  * Waves whose centre falls in the same place share a bus. `regionOf` returns
- * the region id, or undefined for the canvas. The last cycle in a bus is the
- * one that sounds; motions add together.
+ * the region id, or undefined for the canvas. A drawing aimed at an instrument
+ * stays off the shared tone and the shared filter. The last cycle on a target
+ * is the one that sounds; motions on the same target add together.
  */
 export function compileWaves(waves: readonly Wave[], regionOf: (at: XY) => string | undefined, snap: boolean): Map<string, BusWaves> {
   const map = new Map<string, BusWaves>();
   const bus = (id: string) => {
     let found = map.get(id);
-    if (!found) map.set(id, (found = { cycle: null, motions: [] }));
+    if (!found) map.set(id, (found = { cycle: null, motions: [], instruments: new Map() }));
+    return found;
+  };
+  const bucket = (entry: BusWaves, instrument?: string): InstrumentProgram => {
+    if (!instrument) return entry;
+    let found = entry.instruments.get(instrument);
+    if (!found) entry.instruments.set(instrument, (found = { cycle: null, motions: [] }));
     return found;
   };
   for (const wave of waves) {
     const samples = sampleWave(wave.points);
     if (!samples) continue;
     const entry = bus(regionOf(waveCenter(wave.points)) ?? '');
-    if (wave.role === 'cycle') entry.cycle = wavePartials(samples);
-    else entry.motions.push({ samples, beats: motionBeats(wave.points, snap) });
+    const target = bucket(entry, wave.instrument);
+    if (wave.role === 'cycle') target.cycle = wavePartials(samples);
+    else target.motions.push({ samples, beats: motionBeats(wave.points, snap) });
   }
   return map;
 }
 
-/** The cycle you hear in each bus: the last one wide enough to be a wave. */
+/** The cycle you hear on each target: the last one wide enough to be a wave. */
 export function heardCycleIds(waves: readonly Wave[], regionOf: (at: XY) => string | undefined): Set<string> {
   const heard = new Map<string, string>();
   for (const wave of waves) {
     if (wave.role !== 'cycle' || !sampleWave(wave.points)) continue;
-    heard.set(regionOf(waveCenter(wave.points)) ?? '', wave.id);
+    heard.set(waveTarget(regionOf(waveCenter(wave.points)) ?? '', wave.instrument), wave.id);
   }
   return new Set(heard.values());
 }
@@ -259,7 +287,11 @@ export function busWavesKey(program: ReadonlyMap<string, BusWaves>): string {
   const parts: unknown[] = [];
   for (const id of [...program.keys()].sort()) {
     const bus = program.get(id)!;
-    parts.push(id, bus.cycle ? [Array.from(bus.cycle.real), Array.from(bus.cycle.imag)] : null, bus.motions);
+    const aimed = [...bus.instruments.keys()].sort().map((instrument) => {
+      const program = bus.instruments.get(instrument)!;
+      return [instrument, program.cycle ? [Array.from(program.cycle.real), Array.from(program.cycle.imag)] : null, program.motions];
+    });
+    parts.push(id, bus.cycle ? [Array.from(bus.cycle.real), Array.from(bus.cycle.imag)] : null, bus.motions, aimed);
   }
   return JSON.stringify(parts);
 }

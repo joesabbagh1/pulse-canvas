@@ -1,4 +1,5 @@
 import { GRID, PARALLEL_OFFSET, linkBeats, linkPath, type LinkPath, type XY } from './geometry';
+import { instrumentById, type InstrumentId } from './instruments';
 import { PASS, compile, run, seededRandom, type Outcome, type Program, type RouteMode, type Target } from './script';
 import type { Tuning } from './tuning';
 
@@ -9,16 +10,16 @@ import type { Tuning } from './tuning';
 // This class is pure timing logic in beats. It never touches audio; whoever
 // owns it turns each hit into sound via the onHit callback.
 
-export type BlockKind = 'start' | 'tone' | 'pluck' | 'bass' | 'jawharp' | 'khuur' | 'kick' | 'snare' | 'hat';
+export type BlockKind = 'start' | InstrumentId;
 
 /** Plays a scale degree and can step up when a link grows a new block. */
 export function isMelodic(kind: BlockKind) {
-  return kind === 'tone' || kind === 'pluck' || kind === 'bass' || kind === 'jawharp' || kind === 'khuur';
+  return kind !== 'start' && (instrumentById(kind)?.steps ?? false);
 }
 
-/** Has a pitch to edit: the melodic voices, and the kick (its pitch is the drum's). */
+/** Has a pitch to edit. Drums that can be tuned, like the kick, are pitched without stepping. */
 export function hasPitch(kind: BlockKind) {
-  return isMelodic(kind) || kind === 'kick';
+  return kind !== 'start' && (instrumentById(kind)?.pitched ?? false);
 }
 
 /** Its tuning is the one it plays in: its region's, or the canvas's. */

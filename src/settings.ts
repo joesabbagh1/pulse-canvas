@@ -1,6 +1,7 @@
 import { createContext, useContext } from 'react';
 import { useStore } from '@xyflow/react';
 import { DEFAULT_SCALE_ID, ROOT_HZ, SCALES, describePitch, scaleById, type Scale, type Tuning } from './engine/tuning';
+import { CATEGORIES, instrumentById } from './engine/instruments';
 import type { BlockKind } from './engine/scheduler';
 import { regionTuning, type CanvasNode } from './piece';
 import { regionAt } from './regions';
@@ -33,31 +34,31 @@ function pitchColor(degree: number, scale: Scale, hueShift: number, lightShift: 
   return `hsl(${hue} 75% ${light}%)`;
 }
 
+// The original eight keep the colours the demo was drawn with. Everything else
+// takes its family hue and, when it has a pitch, lightens as it goes up.
+const LEGACY_SHIFT: Partial<Record<string, [number, number]>> = {
+  tone: [0, 0],
+  pluck: [150, 6],
+  bass: [40, -16],
+  jawharp: [200, 0],
+  khuur: [178, -14],
+};
+const LEGACY_FLAT: Partial<Record<string, string>> = {
+  kick: '#ff6b4a',
+  snare: '#e2b15a',
+  hat: '#3ccfc1',
+  start: '#f2f2f5',
+};
+
 export function blockColor(kind: BlockKind, degree: number, scale: Scale): string {
-  switch (kind) {
-    case 'tone':
-      return pitchColor(degree, scale, 0, 0);
-    case 'pluck':
-      return pitchColor(degree, scale, 150, 6);
-    case 'bass':
-      return pitchColor(degree, scale, 40, -16);
-    case 'jawharp':
-      return pitchColor(degree, scale, 200, 0);
-    case 'khuur':
-      return pitchColor(degree, scale, 178, -14);
-    case 'kick':
-      return '#ff6b4a';
-    case 'snare':
-      return '#e2b15a';
-    case 'hat':
-      return '#3ccfc1';
-    case 'start':
-      return '#f2f2f5';
-    default: {
-      const exhaustive: never = kind;
-      return exhaustive;
-    }
-  }
+  const flat = LEGACY_FLAT[kind];
+  if (flat) return flat;
+  const shift = LEGACY_SHIFT[kind];
+  if (shift) return pitchColor(degree, scale, shift[0], shift[1]);
+  const inst = instrumentById(kind);
+  const hue = CATEGORIES.find((c) => c.id === inst?.category)?.hue ?? 200;
+  if (!inst?.pitched) return `hsl(${hue} 55% 58%)`;
+  return pitchColor(degree, scale, hue - 200, 0);
 }
 
 /** Each scale gets its own region tint, so regions in the same tuning match. */

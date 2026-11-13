@@ -1,18 +1,10 @@
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { memo, useMemo, type CSSProperties, type ReactNode } from 'react';
-import type { BlockKind } from '../engine/scheduler';
+import { instrumentById } from '../engine/instruments';
 import { compile, type Target } from '../engine/script';
 import { describePitch } from '../engine/tuning';
 import type { BlockNode } from '../piece';
 import { blockColor, useBlockTuning } from '../settings';
-
-// Short enough to sit under the note name. The dock and the panel use the full names.
-const VOICE_LABEL: Partial<Record<BlockKind, string>> = {
-  pluck: 'pluck',
-  bass: 'bass',
-  jawharp: 'jaw',
-  khuur: 'khuur',
-};
 
 // A block is a disc inside a ring. Drag the disc to move the block; drag the
 // ring to pull out a link. While a link is being dragged, the whole block
@@ -23,43 +15,35 @@ function BlockView({ id, data, selected }: NodeProps<BlockNode>) {
   const badge = useCodeBadge(data.code, 'block');
   const style = { '--c': blockColor(data.kind, data.degree, scale) } as CSSProperties;
 
+  const inst = data.kind === 'start' ? undefined : instrumentById(data.kind);
   let label: ReactNode;
-  switch (data.kind) {
-    case 'tone':
-    case 'pluck':
-    case 'bass':
-    case 'jawharp':
-    case 'khuur': {
-      const pitch = describePitch(data.degree, scale, rootHz);
-      const voice = VOICE_LABEL[data.kind];
-      label = (
-        <>
-          <span className="block-note">
-            {pitch.name}
-            <sub>{pitch.octave}</sub>
+  if (data.kind === 'start') {
+    label = (
+      <>
+        <span className="block-note">▶</span>
+        <span className="block-sub">{data.every ? `every ${data.every}` : 'once'}</span>
+      </>
+    );
+  } else if (inst?.pitched) {
+    const pitch = describePitch(data.degree, scale, rootHz);
+    label = (
+      <>
+        <span className="block-note">
+          {pitch.name}
+          <sub>{pitch.octave}</sub>
+        </span>
+        {pitch.offset !== 0 ? (
+          <span className="block-sub">
+            {pitch.offset > 0 ? '+' : '−'}
+            {Math.abs(pitch.offset)}¢
           </span>
-          {pitch.offset !== 0 ? (
-            <span className="block-sub">
-              {pitch.offset > 0 ? '+' : '−'}
-              {Math.abs(pitch.offset)}¢
-            </span>
-          ) : (
-            voice && <span className="block-sub">{voice}</span>
-          )}
-        </>
-      );
-      break;
-    }
-    case 'start':
-      label = (
-        <>
-          <span className="block-note">▶</span>
-          <span className="block-sub">{data.every ? `every ${data.every}` : 'once'}</span>
-        </>
-      );
-      break;
-    default:
-      label = <span className="block-word">{data.kind}</span>;
+        ) : (
+          inst.short && <span className="block-sub">{inst.short}</span>
+        )}
+      </>
+    );
+  } else {
+    label = <span className="block-word">{inst?.short || inst?.name || data.kind}</span>;
   }
 
   return (

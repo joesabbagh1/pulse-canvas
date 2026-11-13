@@ -1,6 +1,7 @@
 import { useReactFlow, useStore, useStoreApi } from '@xyflow/react';
 import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import type { Engine } from '../engine/engine';
+import { instrumentById } from '../engine/instruments';
 import { formatBeats, linkPath, nearestSegment, type XY } from '../engine/geometry';
 import {
   MIN_WAVE_WIDTH,
@@ -185,7 +186,8 @@ function WaveShape({
   const bounds = waveBounds(points);
   const base = baselineY(points);
   const line = screenLine(points, sx, sy);
-  const label = role === 'cycle' ? 'cycle' : formatBeats(motionBeats(points, snap), snap);
+  const who = wave.instrument ? instrumentById(wave.instrument)?.short || instrumentById(wave.instrument)?.name : '';
+  const label = who ? (role === 'cycle' ? who : `${who} ${formatBeats(motionBeats(points, snap), snap)}`) : role === 'cycle' ? 'cycle' : formatBeats(motionBeats(points, snap), snap);
   const labelY = Math.min(sy(base), sy(bounds.minY)) - 8;
   const head = playheadAt(wave, engine.playing ? engine.clock.beatAt(engine.heardNow()) : 0, snap);
 

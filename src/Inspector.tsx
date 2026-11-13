@@ -2,24 +2,15 @@ import { useEffect, useState, type CSSProperties } from 'react';
 import { CodeField } from './CodeField';
 import { KeyField } from './KeyField';
 import { GRID, formatBeats, parseLength } from './engine/geometry';
+import { CATEGORIES, instrumentById, instrumentsIn } from './engine/instruments';
 import { hasPitch, type BlockKind } from './engine/scheduler';
 import { describePitch, type Scale, type Tuning } from './engine/tuning';
 import type { WaveRole } from './engine/wave';
 import type { BlockData, BlockNode, RegionData, RegionNode } from './piece';
 import { RegionInspector } from './RegionInspector';
 import { blockColor, useSettings } from './settings';
+import { Select } from './ui/Select';
 
-const KINDS: { kind: BlockKind; label: string }[] = [
-  { kind: 'start', label: 'Start' },
-  { kind: 'tone', label: 'Tone' },
-  { kind: 'pluck', label: 'Pluck' },
-  { kind: 'bass', label: 'Bass' },
-  { kind: 'jawharp', label: 'Jaw harp' },
-  { kind: 'khuur', label: 'Khuur' },
-  { kind: 'kick', label: 'Kick' },
-  { kind: 'snare', label: 'Snare' },
-  { kind: 'hat', label: 'Hat' },
-];
 const REPEATS = [0, 1, 2, 4, 8];
 
 interface Props {
@@ -30,7 +21,7 @@ interface Props {
   /** `minBeats` is the straight line between its blocks: as short as it can get. */
   link?: { beats: number; minBeats: number; bends: number; code: string };
   /** A selected drawing. `place` is the region it sounds in; null is the canvas. */
-  wave?: { role: WaveRole; beats: number; place: string | null; heard: boolean; sampled: boolean; points: number };
+  wave?: { role: WaveRole; beats: number; place: string | null; heard: boolean; sampled: boolean; points: number; instrument: string };
   playing: boolean;
   onChange: (id: string, patch: Partial<BlockData>) => void;
   onLinkCode: (code: string) => void;
@@ -45,19 +36,24 @@ interface Props {
   onStraighten: () => void;
   onDelete: () => void;
   onWaveRole: (role: WaveRole) => void;
+  onWaveInstrument: (id: string) => void;
 }
 
 export function Inspector(props: Props) {
   const { node, nodeTuning, region, link, wave, playing, onChange, onLinkCode, onLinkLength, onRegionChange, onImportScale, onRemoveScale, onLoadSample } =
     props;
-  const { onFire, onStraighten, onDelete, onWaveRole, takenKeys } = props;
+  const { onFire, onStraighten, onDelete, onWaveRole, onWaveInstrument, takenKeys } = props;
   const { snap } = useSettings();
 
   if (wave) {
     const place = wave.place ?? 'the canvas';
+    const aimed = wave.instrument ? instrumentById(wave.instrument) : undefined;
+    const who = aimed?.name ?? 'this instrument';
     return (
       <div className="inspector">
-        <div className="inspector-title">Wave</div>
+        <div className="inspector-title" data-n="04">
+          Wave
+        </div>
         <div className="segmented">
           <button className={wave.role === 'cycle' ? 'is-on' : ''} onClick={() => onWaveRole('cycle')}>
             Cycle
@@ -66,18 +62,32 @@ export function Inspector(props: Props) {
             Cutoff
           </button>
         </div>
+        <Select
+          ariaLabel="Wave instrument"
+          value={wave.instrument}
+          onChange={onWaveInstrument}
+          groups={[
+            { options: [{ value: '', label: 'This region' }] },
+            ...CATEGORIES.map((category) => ({
+              label: category.label,
+              options: instrumentsIn(category.id).map((inst) => ({ value: inst.id, label: inst.name })),
+            })),
+          ]}
+        />
         {wave.role === 'cycle' ? (
           <p className="muted">
-            One period of the tone for {place}. Up from the dashed line is the top of the wave.
-            {wave.sampled && ' This region plays a sample, so the cycle stays quiet until the sample is removed.'}
-            {!wave.heard && !wave.sampled && ' A newer cycle here is the one you hear.'}
+            {aimed
+              ? `One period of the ${who} for ${place}. The drawing replaces that instrument's tone.`
+              : `One period of the tone for ${place}. Up from the dashed line is the top of the wave.`}
+            {!aimed && wave.sampled && ' This region plays a sample, so the cycle stays quiet until the sample is removed.'}
+            {aimed && !aimed.pitched && ` ${who} has no tone for a cycle to replace. A cutoff can still belong to it.`}
+            {!wave.heard && (aimed ? aimed.pitched : !wave.sampled) && ' A newer cycle on this same target is the one you hear.'}
           </p>
         ) : (
           <p className="muted">
-            A {formatBeats(wave.beats, snap)}-beat loop on the filter for {place}. The width is the loop, and the height
-            bends the cutoff
-            {wave.place ? " around that region's Tone slider." : ' around fully open. Put it in a region to bend it around the Tone slider.'}{' '}
-            Motions in the same place add together.
+            {aimed
+              ? `A ${formatBeats(wave.beats, snap)}-beat loop on the ${who} filter for ${place}. The width is the loop, and the height bends that instrument's cutoff around the Tone slider. The other instruments stay on the region filter.`
+              : `A ${formatBeats(wave.beats, snap)}-beat loop on the filter for ${place}. The width is the loop, and the height bends the cutoff${wave.place ? " around that region's Tone slider." : ' around fully open. Put it in a region to bend it around the Tone slider.'} Motions on the region add together.`}
           </p>
         )}
         <p className="muted">
@@ -110,7 +120,9 @@ export function Inspector(props: Props) {
   if (link) {
     return (
       <div className="inspector">
-        <div className="inspector-title">Link</div>
+        <div className="inspector-title" data-n="03">
+          Link
+        </div>
         <LengthField beats={link.beats} minBeats={link.minBeats} snap={snap} onSet={onLinkLength} />
         {link.bends > 0 && (
           <p className="muted">
@@ -136,17 +148,23 @@ export function Inspector(props: Props) {
 
   return (
     <div className="inspector" style={{ '--c': blockColor(kind, degree, tuning.scale) } as CSSProperties}>
-      <div className="inspector-title">
+      <div className="inspector-title" data-n="02">
         <span className="swatch" /> Block
       </div>
 
-      <div className="segmented">
-        {KINDS.map((k) => (
-          <button key={k.kind} className={k.kind === kind ? 'is-on' : ''} onClick={() => set({ kind: k.kind })}>
-            {k.label}
-          </button>
-        ))}
-      </div>
+      <Select
+        ariaLabel="Instrument"
+        value={kind}
+        onChange={(value) => set({ kind: value as BlockKind })}
+        groups={[
+          { options: [{ value: 'start', label: 'Start' }] },
+          ...CATEGORIES.map((category) => ({
+            label: category.label,
+            options: instrumentsIn(category.id).map((inst) => ({ value: inst.id, label: inst.name })),
+          })),
+        ]}
+      />
+      {kind !== 'start' && instrumentById(kind) && <span className="muted">{instrumentById(kind)?.hint}</span>}
 
       {hasPitch(kind) && (
         <div className="field">

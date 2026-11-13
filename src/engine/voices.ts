@@ -1,5 +1,8 @@
 import * as Tone from 'tone';
-import type { Partials } from './wave';
+import { CatalogVoices } from './catalogVoices';
+import { instrumentById } from './instruments';
+import { motionSum, movedTone, type InstrumentProgram, type MotionCurve, type Partials } from './wave';
+import type { BeatClock } from './clock';
 import { PLAIN, type GraphBlock, type NoteShape } from './scheduler';
 import { ROOT_HZ, degreeToHz } from './tuning';
 
@@ -35,6 +38,27 @@ const audible = (hz: number) => hz >= AUDIBLE_HZ[0] && hz <= AUDIBLE_HZ[1];
 // past this many the oldest is cut.
 const MAX_SAMPLE_NOTES = 24;
 const MAX_DRAWN_NOTES = 16;
+/** Same curve as the region filter, so an instrument cutoff bends around the Tone slider too. */
+const toneHz = (tone: number) => 200 * 100 ** tone;
+
+/** One instrument's private lowpass, plus the drawn notes that use its cycle. */
+interface Shade {
+  input: Tone.InputNode;
+  filter: Tone.Filter;
+  /** Frequency when no cutoff drawing is driving it. */
+  rest: number;
+  automated: boolean;
+  dirty: boolean;
+  scheduledTo: number;
+  wave: PeriodicWave | null;
+  notes: DrawnNote[];
+}
+
+interface DrawnNote {
+  osc: OscillatorNode;
+  env: Tone.AmplitudeEnvelope;
+  gone: boolean;
+}
 
 /** The native node a Tone node accepts audio on. */
 function audioInput(target: { input?: unknown }): AudioNode {
@@ -222,24 +246,34 @@ export class Voices {
   private snares: Pool<SnareVoice>;
   private hats: Pool<Tone.NoiseSynth>;
   private hatFilter: Tone.Filter;
+  private catalog: CatalogVoices;
+  private programs = new Map<string, InstrumentProgram>();
+  private shades = new Map<string, Shade>();
+  private ownedFilters: Tone.Filter[] = [];
+  private toneFilter: Tone.Filter;
   private sampleNotes: Tone.ToneBufferSource[] = [];
   private drawnOut: Tone.Gain;
   private drawnWave: PeriodicWave | null = null;
-  private drawnNotes: { osc: OscillatorNode; env: Tone.AmplitudeEnvelope; gone: boolean }[] = [];
+  private drawnNotes: DrawnNote[] = [];
 
   constructor(private output: Tone.InputNode) {
+    // Open unless a cutoff drawing is aimed at Tone. The region filter still follows.
+    this.toneFilter = this.openFilter();
     this.tone = new Tone.PolySynth(Tone.Synth, {
       oscillator: { type: 'triangle' },
       envelope: { attack: 0.004, decay: 0.3, sustain: 0.1, release: 0.8 },
-    }).connect(output);
+    }).connect(this.toneFilter);
     this.tone.maxPolyphony = 32;
     this.tone.volume.value = -12;
     // The drawn cycle is the same loudness as the triangle it replaces.
-    this.drawnOut = new Tone.Gain(Tone.dbToGain(-12)).connect(output);
+    this.drawnOut = new Tone.Gain(Tone.dbToGain(-12)).connect(this.toneFilter);
+    this.remember('tone', this.toneFilter, this.toneFilter, 18000);
 
+    const pluckFilter = this.openFilter();
+    this.remember('pluck', pluckFilter, pluckFilter, 18000);
     this.plucks = new Pool(
       Array.from({ length: 8 }, () =>
-        new Tone.PluckSynth({ attackNoise: 2, dampening: 5000, resonance: 0.92, release: 0.4, volume: -8 }).connect(output),
+        new Tone.PluckSynth({ attackNoise: 2, dampening: 5000, resonance: 0.92, release: 0.4, volume: -8 }).connect(pluckFilter),
       ),
     );
 
@@ -251,8 +285,11 @@ export class Voices {
     }).connect(this.bassFilter);
     this.bass.maxPolyphony = 8;
     this.bass.volume.value = -8;
+    this.remember('bass', this.bassFilter, this.bassFilter, 420);
 
-    this.jawharps = new Pool(Array.from({ length: 4 }, () => new JawHarpVoice(output)));
+    const jawFilter = this.openFilter();
+    this.remember('jawharp', jawFilter, jawFilter, 18000);
+    this.jawharps = new Pool(Array.from({ length: 4 }, () => new JawHarpVoice(jawFilter)));
 
     // A fixed wooden resonance, then a low pass to take the digital edge off the bow.
     this.khuurLow = new Tone.Filter({ type: 'lowpass', frequency: 2800, rolloff: -12 }).connect(output);
@@ -269,8 +306,11 @@ export class Voices {
     }).connect(this.khuurBody);
     this.khuurDrone.maxPolyphony = 6;
     this.khuurDrone.volume.value = -17;
-    this.bows = new Pool(Array.from({ length: 3 }, () => new BowScratch(output)));
+    this.remember('khuur', this.khuurBody, this.khuurLow, 2800);
+    this.bows = new Pool(Array.from({ length: 3 }, () => new BowScratch(this.khuurLow)));
 
+    const kickFilter = this.openFilter();
+    this.remember('kick', kickFilter, kickFilter, 18000);
     this.kicks = new Pool(
       Array.from({ length: 4 }, () =>
         new Tone.MembraneSynth({
@@ -278,13 +318,17 @@ export class Voices {
           octaves: 5,
           envelope: { attack: 0.001, decay: 0.4, sustain: 0, release: 0.05 },
           volume: -6,
-        }).connect(output),
+        }).connect(kickFilter),
       ),
     );
 
-    this.snares = new Pool(Array.from({ length: 4 }, () => new SnareVoice(output)));
+    const snareFilter = this.openFilter();
+    this.remember('snare', snareFilter, snareFilter, 18000);
+    this.snares = new Pool(Array.from({ length: 4 }, () => new SnareVoice(snareFilter)));
 
-    this.hatFilter = new Tone.Filter(7500, 'highpass').connect(output);
+    const hatShade = this.openFilter();
+    this.remember('hat', hatShade, hatShade, 18000);
+    this.hatFilter = new Tone.Filter(7500, 'highpass').connect(hatShade);
     this.hats = new Pool(
       Array.from({ length: 4 }, () =>
         new Tone.NoiseSynth({
@@ -294,6 +338,36 @@ export class Voices {
         }).connect(this.hatFilter),
       ),
     );
+    this.catalog = new CatalogVoices(output);
+  }
+
+  /** Cycles and cutoffs aimed at single instruments. The region tone and filter are separate. */
+  setInstrumentPrograms(programs: ReadonlyMap<string, InstrumentProgram>) {
+    this.programs = new Map(programs);
+    for (const [id, program] of programs) {
+      const shade = this.shade(id);
+      shade.dirty = true;
+      const wave = program.cycle
+        ? Tone.getContext().createPeriodicWave(program.cycle.real, program.cycle.imag, { disableNormalization: true })
+        : null;
+      shade.wave = wave;
+      if (wave) for (const note of shade.notes) note.osc.setPeriodicWave(wave);
+    }
+    for (const [id, shade] of this.shades) {
+      if (programs.has(id)) continue;
+      shade.wave = null;
+      shade.dirty = true;
+    }
+  }
+
+  /** Schedules each instrument cutoff across the lookahead. No motions hands the filter back. */
+  advanceInstruments(baseTone: number, clock: BeatClock, now: number, until: number) {
+    for (const [id, shade] of this.shades) this.scheduleShade(shade, this.programs.get(id)?.motions ?? [], baseTone, clock, now, until, false);
+  }
+
+  /** While stopped, each instrument cutoff rests where its drawing is at beat 0. */
+  parkInstruments(baseTone: number, now: number) {
+    for (const [id, shade] of this.shades) this.scheduleShade(shade, this.programs.get(id)?.motions ?? [], baseTone, null, now, now, true);
   }
 
   /** Tones play this drawing instead of the triangle. Null goes back to the triangle. Already-sounding notes pick it up. */
@@ -324,28 +398,38 @@ export class Voices {
         case 'tone':
           if (!audible(hz)) break;
           if (sample) this.playSample(sample, hz / ROOT_HZ, time, velocity, length);
-          else if (this.drawnWave) this.playDrawn(hz, time, 0.8 * velocity, length ?? Math.min(0.6, secondsPerBeat * 0.5));
+          else if (this.playCycle('tone', hz, time, 0.8 * velocity, length ?? Math.min(0.6, secondsPerBeat * 0.5))) {
+            // A cycle aimed at Tone replaces the triangle, and the region's own cycle.
+          } else if (this.drawnWave) this.playDrawn(hz, time, 0.8 * velocity, length ?? Math.min(0.6, secondsPerBeat * 0.5));
           else this.tone.triggerAttackRelease(hz, length ?? Math.min(0.6, secondsPerBeat * 0.5), time, 0.8 * velocity);
           break;
         case 'pluck':
           if (!audible(hz)) break;
-          this.pluck(hz, time, velocity, length ?? Math.min(0.5, secondsPerBeat * 0.5));
+          if (!this.playCycle('pluck', hz, time, velocity, length ?? Math.min(0.5, secondsPerBeat * 0.5))) {
+            this.pluck(hz, time, velocity, length ?? Math.min(0.5, secondsPerBeat * 0.5));
+          }
           break;
         case 'bass':
           if (!audible(hz)) break;
-          this.bass.triggerAttackRelease(hz, length ?? Math.min(0.8, secondsPerBeat), time, velocity);
+          if (!this.playCycle('bass', hz, time, velocity, length ?? Math.min(0.8, secondsPerBeat))) {
+            this.bass.triggerAttackRelease(hz, length ?? Math.min(0.8, secondsPerBeat), time, velocity);
+          }
           break;
         case 'jawharp':
           if (!audible(hz)) break;
-          this.jawharps.take(time)?.hit(hz, time, velocity, length ?? Math.min(0.45, secondsPerBeat * 0.5));
+          if (!this.playCycle('jawharp', hz, time, velocity, length ?? Math.min(0.45, secondsPerBeat * 0.5))) {
+            this.jawharps.take(time)?.hit(hz, time, velocity, length ?? Math.min(0.45, secondsPerBeat * 0.5));
+          }
           break;
         case 'khuur': {
           if (!audible(hz)) break;
           const held = length ?? Math.min(1.8, Math.max(0.4, secondsPerBeat));
-          this.khuur.triggerAttackRelease(hz, held, time, velocity);
-          const drone = khuurDroneHz(hz);
-          if (audible(drone)) this.khuurDrone.triggerAttackRelease(drone, held, time, velocity);
-          this.bows.take(time)?.hit(time, velocity);
+          if (!this.playCycle('khuur', hz, time, velocity, held)) {
+            this.khuur.triggerAttackRelease(hz, held, time, velocity);
+            const drone = khuurDroneHz(hz);
+            if (audible(drone)) this.khuurDrone.triggerAttackRelease(drone, held, time, velocity);
+            this.bows.take(time)?.hit(time, velocity);
+          }
           break;
         }
         case 'kick':
@@ -359,9 +443,98 @@ export class Voices {
           break;
         case 'start':
           break;
+        default: {
+          const inst = instrumentById(block.kind);
+          if (!inst) break;
+          if (inst.pitched && !audible(hz)) break;
+          const held = length ?? Math.min(1.2, Math.max(0.3, secondsPerBeat));
+          if (!(inst.pitched && this.playCycle(block.kind, hz, time, velocity, held))) {
+            this.catalog.play(inst, hz, time, velocity, length, secondsPerBeat);
+          }
+          break;
+        }
       }
     } catch (err) {
       console.warn('Voice failed to play', err);
+    }
+  }
+
+  private openFilter() {
+    const filter = new Tone.Filter({ type: 'lowpass', frequency: 18000, rolloff: -12 }).connect(this.output);
+    this.ownedFilters.push(filter);
+    return filter;
+  }
+
+  /** `input` is where a drawn cycle enters. `filter` is what a cutoff drawing moves. */
+  private remember(id: string, input: Tone.InputNode, filter: Tone.Filter, rest: number) {
+    this.shades.set(id, { input, filter, rest, automated: false, dirty: false, scheduledTo: 0, wave: null, notes: [] });
+  }
+
+  private shade(id: string) {
+    const existing = this.shades.get(id);
+    if (existing) return existing;
+    const filter = this.openFilter();
+    this.remember(id, filter, filter, 18000);
+    return this.shades.get(id)!;
+  }
+
+  /** Plays the instrument's cycle into its own filter. False when that instrument has no cycle. */
+  private playCycle(id: string, hz: number, time: number, velocity: number, length: number) {
+    const shade = this.shades.get(id) ?? (this.programs.has(id) ? this.shade(id) : undefined);
+    const wave = shade?.wave;
+    if (!shade || !wave) return false;
+    if (shade.notes.length >= MAX_DRAWN_NOTES) return true;
+    const env = new Tone.AmplitudeEnvelope({ attack: 0.008, decay: 0.22, sustain: 0.5, release: 0.35 }).connect(shade.input);
+    const osc = Tone.getContext().rawContext.createOscillator();
+    osc.setPeriodicWave(wave);
+    osc.frequency.setValueAtTime(hz, time);
+    osc.connect(audioInput(env));
+    const dur = Math.max(0.02, length);
+    env.triggerAttackRelease(dur, time, velocity);
+    osc.start(time);
+    osc.stop(time + dur + 0.4);
+    const note: DrawnNote = { osc, env, gone: false };
+    shade.notes.push(note);
+    osc.onended = () => {
+      if (note.gone) return;
+      note.gone = true;
+      osc.disconnect();
+      env.dispose();
+      shade.notes = shade.notes.filter((n) => n !== note);
+    };
+    return true;
+  }
+
+  private scheduleShade(shade: Shade, motions: MotionCurve[], baseTone: number, clock: BeatClock | null, now: number, until: number, park: boolean) {
+    if (!motions.length) {
+      if (!shade.automated && !shade.dirty) return;
+      shade.automated = false;
+      shade.dirty = false;
+      shade.scheduledTo = 0;
+      shade.filter.frequency.cancelScheduledValues(now);
+      shade.filter.frequency.rampTo(shade.rest, 0.05);
+      return;
+    }
+    const at = (time: number) => toneHz(movedTone(baseTone, motionSum(motions, clock ? clock.beatAt(time) : 0)));
+    if (park) {
+      shade.automated = true;
+      shade.dirty = false;
+      shade.scheduledTo = 0;
+      shade.filter.frequency.cancelScheduledValues(now);
+      shade.filter.frequency.rampTo(at(now), 0.04);
+      return;
+    }
+    if (shade.dirty || !shade.automated || shade.scheduledTo < now - 0.05) {
+      shade.filter.frequency.cancelScheduledValues(now);
+      shade.filter.frequency.setValueAtTime(at(now), now);
+      shade.scheduledTo = now;
+      shade.automated = true;
+      shade.dirty = false;
+    }
+    while (shade.scheduledTo < until - 0.001) {
+      const next = Math.min(shade.scheduledTo + 0.02, until);
+      shade.filter.frequency.linearRampToValueAtTime(at(next), next);
+      shade.scheduledTo = next;
     }
   }
 
@@ -376,7 +549,7 @@ export class Voices {
 
   /** `length` in seconds cuts the sample short; null lets it ring to its end. */
   private playSample(sample: Tone.ToneAudioBuffer, rate: number, time: number, gain: number, length: number | null) {
-    const note = new Tone.ToneBufferSource({ url: sample, playbackRate: rate, fadeOut: 0.01 }).connect(this.output);
+    const note = new Tone.ToneBufferSource({ url: sample, playbackRate: rate, fadeOut: 0.01 }).connect(this.toneFilter);
     note.onended = () => {
       this.sampleNotes = this.sampleNotes.filter((n) => n !== note);
       note.dispose();
@@ -417,6 +590,17 @@ export class Voices {
     for (const jaw of this.jawharps.voices) jaw.release(time);
     this.khuur.releaseAll(time);
     this.khuurDrone.releaseAll(time);
+    this.catalog.silence(time);
+    for (const shade of this.shades.values()) {
+      for (const note of shade.notes) {
+        note.env.triggerRelease(time);
+        try {
+          note.osc.stop(time);
+        } catch {
+          // Already stopped.
+        }
+      }
+    }
     for (const note of this.sampleNotes) note.stop(time);
     for (const note of this.drawnNotes) {
       note.env.triggerRelease(time);
@@ -449,6 +633,8 @@ export class Voices {
     this.khuurBody.dispose();
     this.khuurLow.dispose();
     for (const bow of this.bows.voices) bow.dispose();
+    this.catalog.dispose();
+    for (const filter of this.ownedFilters) filter.dispose();
     for (const k of this.kicks.voices) k.dispose();
     for (const s of this.snares.voices) s.dispose();
     for (const h of this.hats.voices) h.dispose();

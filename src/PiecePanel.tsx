@@ -32,6 +32,13 @@ const TIPS: [string, string][] = [
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
+const COUNTS = [
+  ['blocks', 'blocks'],
+  ['links', 'links'],
+  ['regions', 'regions'],
+  ['waves', 'waves'],
+] as const;
+
 function duration(seconds: number) {
   if (seconds < 90) return `${Math.round(seconds)} s`;
   const m = Math.floor(seconds / 60);
@@ -58,10 +65,17 @@ export function PiecePanel({ rootHz, scaleId, counts, loops, cycle, bpm, binding
   const { canvas, snap } = useSettings();
   return (
     <div className="inspector">
-      <div className="inspector-title">Piece</div>
-      <p className="muted">
-        {plural(counts.blocks, 'block')} · {plural(counts.links, 'link')} · {plural(counts.regions, 'region')} · {plural(counts.waves, 'wave')}
-      </p>
+      <div className="inspector-title" data-n="00">
+        Piece
+      </div>
+      <div className="meter" aria-label="Piece size">
+        {COUNTS.map(([key, label], index) => (
+          <div key={key} className="meter-cell" data-n={String(index + 1).padStart(2, '0')}>
+            <span className="meter-value">{counts[key]}</span>
+            <span className="meter-label">{label}</span>
+          </div>
+        ))}
+      </div>
 
       <div className="field">
         <span className="field-label">Key and scale</span>

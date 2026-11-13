@@ -65,9 +65,10 @@ describe('findLoops', () => {
 
 describe('routes', () => {
   it('reads pages from the fragment, and anything else is the canvas', () => {
-    expect(['#/examples', '#/guide', '#/', '', '#/nowhere', '#piece=1.abc'].map(parseRoute)).toEqual([
+    expect(['#/examples', '#/guide', '#/instruments', '#/', '', '#/nowhere', '#piece=1.abc'].map(parseRoute)).toEqual([
       'examples',
       'guide',
+      'instruments',
       'canvas',
       'canvas',
       'canvas',

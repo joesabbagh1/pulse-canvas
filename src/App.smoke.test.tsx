@@ -20,6 +20,7 @@ beforeAll(() => {
   globalThis.DOMMatrixReadOnly = class {
     m22 = 1;
   } as unknown as typeof DOMMatrixReadOnly;
+  if (!Element.prototype.getAnimations) Element.prototype.getAnimations = () => [];
   Object.defineProperties(HTMLElement.prototype, {
     offsetWidth: { get: () => 60 },
     offsetHeight: { get: () => 60 },
@@ -54,6 +55,17 @@ async function mount() {
 
 const button = (host: Element, text: string) => [...host.querySelectorAll('button')].find((b) => b.textContent === text)!;
 
+/** Opens the instrument palette, picks a family, and drops that instrument. */
+async function addInstrument(host: Element, category: string, name: string) {
+  if (!document.querySelector('.instrument-palette')) await act(async () => button(host, 'Instruments').click());
+  const tab = [...document.querySelectorAll('.palette-categories button')].find((b) => b.textContent?.trim() === category);
+  if (!tab) throw new Error(`No category ${category}`);
+  await act(async () => (tab as HTMLButtonElement).click());
+  const item = [...document.querySelectorAll('.palette-item')].find((b) => b.textContent?.trim() === name);
+  if (!item) throw new Error(`No instrument ${name} in ${category}`);
+  await act(async () => (item as HTMLButtonElement).click());
+}
+
 /** Opens the File dropdown and picks the item labelled `label`. */
 async function fileMenu(host: Element, label: string) {
   await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="File"]')!.click());
@@ -84,13 +96,12 @@ describe('App', () => {
 
   it('adds a block from the dock and autosaves it', async () => {
     const { host, root } = await mount();
-    const toneButton = [...host.querySelectorAll('button')].find((b) => b.textContent === 'Tone')!;
-    await act(async () => toneButton.click());
+    await addInstrument(host, 'Synths', 'Tone');
     expect(host.querySelectorAll('.react-flow__node-block')).toHaveLength(demoPiece().blocks.length + 1);
 
-    await act(async () => [...host.querySelectorAll('button')].find((b) => b.textContent === 'Snare')!.click());
+    await addInstrument(host, 'Percussion', 'Snare');
     expect(host.querySelector('.inspector .stepper')).toBeNull();
-    await act(async () => [...host.querySelectorAll('button')].find((b) => b.textContent === 'Bass')!.click());
+    await addInstrument(host, 'Synths', 'Bass');
     expect(host.querySelector('.inspector .stepper')).not.toBeNull();
 
     await act(() => new Promise((r) => setTimeout(r, 450)));
@@ -101,12 +112,12 @@ describe('App', () => {
 
   it('adds a jaw harp and a khuur, both pitched from the scale', async () => {
     const { host, root } = await mount();
-    await act(async () => button(host, 'Jaw harp').click());
+    await addInstrument(host, 'Plucked strings', 'Jaw harp');
     expect(host.querySelector('.block.is-selected .block-sub')!.textContent).toBe('jaw');
     expect(host.querySelector('.inspector .stepper')).not.toBeNull();
-    await act(async () => button(host, 'Khuur').click());
+    await addInstrument(host, 'Bowed strings', 'Khuur');
     expect(host.querySelector('.block.is-selected .block-sub')!.textContent).toBe('khuur');
-    expect(host.querySelector('.inspector .segmented .is-on')!.textContent).toBe('Khuur');
+    expect(host.querySelector('.inspector .select-value')!.textContent).toBe('Khuur');
     act(() => root.unmount());
   });
 
@@ -172,7 +183,7 @@ describe('App', () => {
     const newest = (selector: string) => [...host.querySelectorAll(selector)].at(-1)!;
     const note = () => newest('.react-flow__node-block').querySelector('.block-note')!.textContent;
 
-    await act(async () => button(host, 'Tone').click());
+    await addInstrument(host, 'Synths', 'Tone');
     await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Raise pitch"]')!.click());
     expect(note()).toBe('D4');
 
@@ -231,7 +242,7 @@ describe('App', () => {
 
   it('code typed on a block is checked, marked on the block, and saved', async () => {
     const { host, root } = await mount();
-    await act(async () => button(host, 'Tone').click());
+    await addInstrument(host, 'Synths', 'Tone');
     const block = [...host.querySelectorAll('.react-flow__node-block')].at(-1)!;
     const type = (text: string) =>
       act(async () => {
@@ -426,7 +437,7 @@ describe('App', () => {
       expect(downloads[0].name).toMatch(/^pulse-canvas-.*\.json$/);
       const saved = await downloads[0].blob.text();
 
-      await act(async () => button(host, 'Tone').click());
+      await addInstrument(host, 'Synths', 'Tone');
       expect(blockCount(host)).toBe(4);
       const input = host.querySelector<HTMLInputElement>('input[aria-label="Piece file"]')!;
       Object.defineProperty(input, 'files', { value: [new File([saved], 'mine.json')], configurable: true });
@@ -469,7 +480,7 @@ describe('App', () => {
     it('takes back an added block, and redo puts it back', async () => {
       const { host, root } = await mount();
       expect(host.querySelector<HTMLButtonElement>('[aria-label="Undo"]')!.disabled).toBe(true);
-      await act(async () => button(host, 'Tone').click());
+      await addInstrument(host, 'Synths', 'Tone');
       await settle();
       expect(host.querySelector<HTMLButtonElement>('[aria-label="Undo"]')!.disabled).toBe(false);
 
@@ -486,7 +497,7 @@ describe('App', () => {
       vi.spyOn(Engine.prototype, 'audition').mockResolvedValue();
       const { host, root } = await mount();
       const note = () => [...host.querySelectorAll('.react-flow__node-block')].at(-1)!.querySelector('.block-note')!.textContent;
-      await act(async () => button(host, 'Tone').click());
+      await addInstrument(host, 'Synths', 'Tone');
       await settle();
       const before = note();
       const raise = host.querySelector<HTMLButtonElement>('[aria-label="Raise pitch"]')!;
@@ -518,7 +529,7 @@ describe('App', () => {
 
     it('leaves the shortcut to a text box being typed in', async () => {
       const { host, root } = await mount();
-      await act(async () => button(host, 'Tone').click());
+      await addInstrument(host, 'Synths', 'Tone');
       await settle();
       await key({ key: 'z', metaKey: true }, host.querySelector('.inspector textarea')!);
       expect(blocks(host)).toBe(12);

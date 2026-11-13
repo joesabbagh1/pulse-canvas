@@ -7,6 +7,7 @@ import type { SampleRef } from './engine/samples';
 import type { BlockKind, GraphBlock, GraphLink } from './engine/scheduler';
 import { DEFAULT_SCALE_ID, ROOT_HZ, scaleById, type Scale, type Tuning } from './engine/tuning';
 import type { Wave } from './engine/wave';
+import type { Take } from './takes';
 import { readPiece } from './readPiece';
 import { REGION_Z, regionAt } from './regions';
 
@@ -60,6 +61,11 @@ export interface Piece extends Settings {
    * fill in `[]`.
    */
   waves?: Wave[];
+  /**
+   * Performances recorded on the Instruments page. Absent on pieces saved
+   * before takes existed; readers fill in `[]`.
+   */
+  takes?: Take[];
 }
 
 const STORAGE_KEY = 'pulse-canvas:piece:v1';
@@ -120,7 +126,13 @@ export function bendsOf(edge: LinkEdge): XY[] {
   return edge.data?.bends ?? [];
 }
 
-export function toPiece(nodes: CanvasNode[], edges: LinkEdge[], settings: Settings, waves: Wave[] = []): Piece {
+export function toPiece(
+  nodes: CanvasNode[],
+  edges: LinkEdge[],
+  settings: Settings & { takes?: Take[] },
+  waves: Wave[] = [],
+  takes?: Take[],
+): Piece {
   return {
     version: 1,
     ...settings,
@@ -146,6 +158,7 @@ export function toPiece(nodes: CanvasNode[], edges: LinkEdge[], settings: Settin
       return { id: e.id, from: e.source, to: e.target, ...(bends.length ? { bends } : {}), ...(code ? { code } : {}) };
     }),
     waves,
+    takes: takes ?? settings.takes ?? [],
   };
 }
 
@@ -226,7 +239,15 @@ export function savePiece(piece: Piece) {
 }
 
 export function emptyPiece(settings: Settings): Piece {
-  return { version: 1, ...settings, blocks: [{ id: 'start', x: 0, y: 0, kind: 'start', degree: 0, every: 0 }], links: [], regions: [], waves: [] };
+  return {
+    version: 1,
+    ...settings,
+    blocks: [{ id: 'start', x: 0, y: 0, kind: 'start', degree: 0, every: 0 }],
+    links: [],
+    regions: [],
+    waves: [],
+    takes: [],
+  };
 }
 
 // The first patch anyone sees, and the tour on the examples page: a 2-beat

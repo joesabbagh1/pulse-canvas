@@ -1,20 +1,21 @@
 :root {
-  --bg: #0c0d11;
-  --surface: #121419;
-  --surface-raised: #181b23;
-  --panel: rgba(20, 22, 29, 0.92);
-  --panel-border: #2a2e39;
-  --hairline: #22262f;
-  --control: #232733;
-  --control-hover: #2c3141;
-  --control-border: #333949;
-  --text: #e9eaf0;
-  --muted: #8a90a2;
-  --accent: #ffd166;
-  --danger: #ff8a7a;
-  --link: #59607a;
-  --bar-height: 52px;
+  --bg: #070809;
+  --surface: #0c0e10;
+  --surface-raised: #121516;
+  --panel: rgba(8, 10, 11, 0.94);
+  --panel-border: #1c2422;
+  --hairline: #161c1b;
+  --control: #101413;
+  --control-hover: #17201e;
+  --control-border: #24302c;
+  --text: #d7e0db;
+  --muted: #6d7a74;
+  --accent: #3ee0c5;
+  --danger: #ff4d3a;
+  --link: #3a4642;
+  --bar-height: 48px;
   --sidebar-width: 300px;
+  --num: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, monospace;
   color-scheme: dark;
   font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
 }
@@ -84,40 +85,55 @@ kbd {
 
 .brand {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: 8px;
-  padding-right: 6px;
-  color: var(--accent);
+  padding-right: 8px;
+  color: var(--text);
   text-decoration: none;
 }
 
-.brand svg {
-  width: 22px;
-  height: 22px;
-  flex: none;
+.brand-index,
+[data-n]::before {
+  font-family: var(--num);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+}
+
+.brand-index {
+  font-size: 12px;
 }
 
 .brand-name {
-  font-weight: 650;
-  color: var(--text);
+  font-weight: 560;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-size: 12px;
   white-space: nowrap;
 }
 
 .tabs {
   display: flex;
-  gap: 2px;
-  padding: 3px;
-  background: var(--bg);
-  border: 1px solid var(--hairline);
-  border-radius: 10px;
+  gap: 0;
+  border-left: 1px solid var(--hairline);
 }
 
 .tab {
-  padding: 5px 12px;
-  border-radius: 7px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 10px;
   color: var(--muted);
   text-decoration: none;
   white-space: nowrap;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: 11px;
+}
+
+.tab[data-n]::before {
+  content: attr(data-n);
 }
 
 .tab:hover {
@@ -125,8 +141,8 @@ kbd {
 }
 
 .tab.is-active {
-  background: var(--control);
   color: var(--text);
+  box-shadow: inset 0 -1px 0 var(--accent);
 }
 
 .tab:focus-visible,
@@ -143,8 +159,9 @@ kbd {
 }
 
 .tempo-label {
-  font-size: 11px;
-  letter-spacing: 0.06em;
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
   color: var(--muted);
 }
 
@@ -153,14 +170,15 @@ kbd {
 }
 
 .tempo input[type='number'] {
-  width: 4.2em;
-  font: inherit;
+  width: 4.6ch;
+  font-family: var(--num);
+  font-size: 20px;
   font-variant-numeric: tabular-nums;
-  color: var(--text);
-  background: var(--control);
-  border: 1px solid var(--control-border);
-  border-radius: 8px;
-  padding: 4px 6px;
+  letter-spacing: 0;
+  color: var(--accent);
+  background: transparent;
+  border: none;
+  padding: 0;
 }
 
 button.share {
@@ -203,9 +221,8 @@ button.share {
   padding: 5px;
   background: var(--panel);
   border: 1px solid var(--panel-border);
-  border-radius: 12px;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
-  backdrop-filter: blur(8px);
+  border-radius: 0;
+  box-shadow: none;
 }
 
 .dock-label {
@@ -303,6 +320,64 @@ button.share {
 }
 
 .dock-item.is-on {
+  background: var(--control);
+}
+
+/* Families, then the instruments in the one that's open. The SDK places the panel. */
+.instrument-palette {
+  z-index: 12;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(720px, calc(100vw - 32px));
+  max-height: min(320px, 46vh);
+  overflow: auto;
+  padding: 8px;
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.palette-categories {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 2px;
+  background: #171a22;
+  border-radius: 8px;
+}
+
+.palette-categories button {
+  border: none;
+  background: transparent;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+.palette-categories button[data-selected] {
+  background: #17201e;
+  color: var(--text);
+  box-shadow: inset 0 -1px 0 var(--accent);
+}
+
+.palette-instruments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.palette-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-color: transparent;
+  background: transparent;
+  font-size: 12px;
+}
+
+.palette-item:hover {
   background: var(--control);
 }
 
@@ -419,10 +494,11 @@ button {
   color: var(--text);
   background: var(--control);
   border: 1px solid var(--control-border);
-  border-radius: 8px;
+  border-radius: 0;
   padding: 5px 10px;
   cursor: pointer;
   white-space: nowrap;
+  letter-spacing: 0.04em;
 }
 
 button:hover:not(:disabled) {
@@ -441,14 +517,16 @@ button:disabled {
 
 button.play {
   min-width: 84px;
-  font-weight: 600;
+  font-weight: 560;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
   background: var(--accent);
   border-color: transparent;
-  color: #1c1505;
+  color: #04110e;
 }
 
 button.play:hover:not(:disabled) {
-  background: #ffdb85;
+  background: #67f0d6;
 }
 
 button.play.is-on {
@@ -605,7 +683,9 @@ input {
 }
 
 .inspector-title {
-  font-size: 15px;
+  font-size: 12px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
 }
 
 /* Sections after the first get a rule between them, like a settings sheet. */
@@ -713,8 +793,8 @@ input {
 .inspector-title {
   display: flex;
   align-items: center;
-  gap: 7px;
-  font-weight: 600;
+  gap: 8px;
+  font-weight: 560;
 }
 
 .inspector input[type='text'] {
@@ -1815,6 +1895,253 @@ input {
   pointer-events: none;
 }
 
+/* ---------- instruments ---------- */
+
+/* A full-screen page, like the guide: the families scroll on the left and
+   the keyboard stays on the right. */
+.instruments-page {
+  display: grid;
+  grid-template-columns: 250px minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.instrument-catalog,
+.instrument-stage {
+  min-height: 0;
+  min-width: 0;
+  overflow: auto;
+}
+
+.instrument-catalog {
+  padding: 18px 12px 28px;
+  background: var(--surface);
+  border-right: 1px solid var(--hairline);
+}
+
+.instrument-catalog h1 {
+  margin: 4px 8px 14px;
+  font-size: 20px;
+}
+
+.instrument-family {
+  margin: 0 0 14px;
+}
+
+.instrument-family h2 {
+  margin: 0 4px 4px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.instrument-choice {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+  border-color: transparent;
+  background: transparent;
+  padding: 5px 8px;
+}
+
+.instrument-choice-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.instrument-choice.is-on,
+.instrument-choice:hover:not(:disabled) {
+  background: var(--control);
+  border-color: var(--control-border);
+}
+
+.instrument-stage {
+  padding: 22px 22px 48px;
+}
+
+.instrument-intro {
+  margin-bottom: 16px;
+}
+
+.instrument-intro h2,
+.instrument-takes h2 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.instrument-intro p {
+  margin: 6px 0 0;
+  line-height: 1.45;
+}
+
+.instrument-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.instrument-heading .dock-swatch {
+  width: 12px;
+  height: 12px;
+}
+
+.instrument-player {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin: 0 -22px 18px;
+  padding: 0 22px 14px;
+  background: var(--bg);
+}
+
+.instrument-keys {
+  margin: 8px 0 12px;
+}
+
+.instrument-takes {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.take-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.take-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: 12px;
+}
+
+.take-copy {
+  min-width: 0;
+}
+
+.take-name {
+  font-weight: 600;
+}
+
+/* Two octaves, white keys full height and black keys shorter, sitting on the cracks. */
+.piano {
+  position: relative;
+  height: 188px;
+  min-width: 480px;
+  touch-action: none;
+  user-select: none;
+}
+
+.piano-whites {
+  display: flex;
+  height: 100%;
+}
+
+.piano-white,
+.piano-black {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 3px;
+  padding: 0 2px 8px;
+  touch-action: none;
+  user-select: none;
+  cursor: pointer;
+}
+
+.piano-white {
+  position: relative;
+  flex: 1 0 0;
+  min-width: 0;
+  height: 100%;
+  border: 1px solid #d5ddd8;
+  border-radius: 0;
+  background: #e7eeea;
+  color: #101413;
+}
+
+.piano-white.is-down {
+  background: var(--accent);
+  color: #04110e;
+}
+
+.piano-black {
+  position: absolute;
+  top: 0;
+  z-index: 2;
+  width: 4.3%;
+  height: 62%;
+  transform: translateX(-50%);
+  border: 1px solid #070809;
+  border-radius: 0;
+  background: #121816;
+  color: var(--accent);
+  padding-bottom: 6px;
+}
+
+.piano-black.is-down {
+  height: 60%;
+  background: #04110e;
+}
+
+.piano-note {
+  max-width: 100%;
+  overflow: hidden;
+  font-family: var(--num);
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1;
+}
+
+.piano-black .piano-note {
+  font-size: 9px;
+  font-weight: 500;
+}
+
+.piano-hint {
+  font: 9px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  opacity: 0.7;
+}
+
+.drum-pad {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: min(280px, 100%);
+  height: 200px;
+  border-radius: 28px;
+  border: 1px solid color-mix(in srgb, var(--c, var(--accent)) 65%, #000);
+  background: radial-gradient(circle at 50% 38%, color-mix(in srgb, var(--c, var(--accent)) 78%, #fff), var(--c, var(--accent)) 55%, #14161c);
+  color: #fff;
+  font-size: 22px;
+  font-weight: 650;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+  box-shadow: inset 0 -10px 0 rgba(0, 0, 0, 0.28);
+  touch-action: none;
+  user-select: none;
+  cursor: pointer;
+}
+
+.drum-pad.is-down {
+  transform: translateY(4px);
+  box-shadow: inset 0 8px 18px rgba(0, 0, 0, 0.4);
+  filter: brightness(1.08);
+}
+
 /* ---------- smaller screens ---------- */
 
 @media (max-width: 1100px) {
@@ -1860,6 +2187,16 @@ input {
 /* Narrow canvases get a one-row dock of swatches (names stay in the tooltips)
    and a zoom cluster without its percentage, so the two never collide. */
 @media (max-width: 900px) {
+  .instruments-page {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 220px) minmax(0, 1fr);
+  }
+
+  .instrument-catalog {
+    border-right: none;
+    border-bottom: 1px solid var(--hairline);
+  }
+
   .dock-label,
   .dock-item .dock-text {
     display: none;
@@ -1885,5 +2222,80 @@ input {
   .snap-toggle span {
     display: none;
   }
+}
+
+/* Indices sit in front of a label. The number is the interface. */
+.tab[data-n]::before,
+.inspector-title[data-n]::before,
+.palette-categories button[data-n]::before,
+.palette-item[data-n]::before,
+.instrument-catalog h1[data-n]::before,
+.instrument-family h2[data-n]::before,
+.instrument-choice[data-n]::before,
+.meter-cell[data-n]::before {
+  content: attr(data-n);
+  margin-right: 8px;
+}
+
+.field-label {
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-size: 10px;
+}
+
+.meter {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  background: var(--hairline);
+  border: 1px solid var(--hairline);
+}
+
+.meter-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 8px;
+  background: var(--bg);
+}
+
+.meter-cell::before {
+  margin-right: 0;
+}
+
+.meter-value {
+  font-family: var(--num);
+  font-size: 22px;
+  line-height: 1;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.meter-label {
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.dock-layers,
+.select-trigger,
+.select-list,
+.example-card,
+.take-row,
+.length-input {
+  border-radius: 0;
+}
+
+.dock-item[aria-expanded='true'] {
+  color: var(--accent);
+  box-shadow: inset 0 -1px 0 var(--accent);
+}
+
+.palette-categories button,
+.palette-item {
+  display: inline-flex;
+  align-items: center;
 }
 

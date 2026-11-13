@@ -81,6 +81,20 @@ describe('waves', () => {
     expect(heardCycleIds([saw, sine, outside], regionOf)).toEqual(new Set(['sine', 'out']));
   });
 
+  it('keeps an instrument drawing off the shared tone and filter', () => {
+    const tone = { id: 'tone', ...stampOf('saw', { x: 0, y: 0 }) };
+    const violin = { id: 'violin', ...stampOf('sine', { x: 20, y: 0 }), instrument: 'violin' };
+    const violinCutoff = { id: 'violin-cut', ...stampOf('decay', { x: 20, y: 30 }), instrument: 'violin' };
+    const regionOf = () => 'lead';
+    const program = compileWaves([tone, violin, violinCutoff], regionOf, true);
+    const bus = program.get('lead')!;
+    expect(bus.motions).toHaveLength(0);
+    expect(bus.cycle).toBeTruthy();
+    expect(bus.instruments.get('violin')!.cycle!.imag[1]).toBeGreaterThan(0.85);
+    expect(bus.instruments.get('violin')!.motions).toHaveLength(1);
+    expect(heardCycleIds([tone, violin], regionOf)).toEqual(new Set(['tone', 'violin']));
+  });
+
   it('thins a pencil stroke', () => {
     const raw = Array.from({ length: 100 }, (_, i) => ({ x: i, y: 0 }));
     expect(simplifyStroke(raw).length).toBeLessThan(raw.length);

@@ -91,8 +91,8 @@ Select a region (click its name tab) to set, for everything inside it:
   time in beats, so it follows the tempo) and *Reverb*. Double-click a slider to
   reset it.
 - **Sample**: load an audio file, and the region's tones play it instead of the
-  synth, pitched by scale degree as if it were recorded at C4. Pluck, bass,
-  jaw harp and khuur keep their own voices. Samples are kept
+  synth, pitched by scale degree as if it were recorded at C4. Every other
+  instrument keeps its own voice. Samples are kept
   in this browser's storage (IndexedDB), not in the piece's saved JSON, so a
   piece opened elsewhere asks for the file again.
 
@@ -103,15 +103,16 @@ Blocks outside every region play through the canvas's own default sound.
 **Waves**, in the bar at the bottom, draws the synth. The beat layer still fires
 the notes.
 
-- A **cycle** is one period of the oscillator. It replaces the plain tone for
-  the region its middle sits in (the newest cycle, when there are several). Up
-  from the dashed line is the top of the wave. **Saw**, **square** and **sine**
-  drop a shape; the **pencil** draws one. Drag a point to reshape it, drag the
-  line to add a point, double-click a point to remove it, and drag the name to
-  move the whole drawing. A region's sample still plays instead of the cycle.
+- A **cycle** is one period of an oscillator. Left on the region, it replaces
+  Tone. Aimed at an instrument, it replaces that instrument's tone. Up from the
+  dashed line is the top of the wave. **Saw**, **square** and **sine** drop a
+  shape; the **pencil** draws one. Drag a point to reshape it, drag the line to
+  add a point, double-click a point to remove it, and drag the name to move the
+  whole drawing. A region's sample still plays instead of Tone.
 - A **cutoff** motion loops. Its width is the loop, in beats, by the same rule
-  as a link, and its height bends that region's Tone filter around the Tone
-  slider. **Decay** drops a two-beat sweep. Motions in one region add together.
+  as a link. On the region, its height bends the Tone filter around the Tone
+  slider. Aimed at one instrument, only that instrument's filter moves.
+  **Decay** drops a two-beat sweep. Motions on the same target add together.
   A dot rides the line in time with the clock.
 - Snap ¼ rounds a motion's loop to quarter beats. Turn the pencil off, or drag
   with the middle button, to pan while Waves is showing. Drawings outside every
@@ -145,7 +146,9 @@ a block or link with code is marked `ƒ`.
 | `src/engine/script.ts` | The code language: compiled once, then run for each pulse. |
 | `src/engine/engine.ts` | Runs the scheduler on the audio clock, 0.2 s ahead. |
 | `src/engine/mixer.ts` | One bus per region: its voices → filter → echo → reverb → level, pan, mute. |
-| `src/engine/voices.ts` | Tone.js sounds: tone (synth, drawn cycle, or sample), pluck, bass, jaw harp, khuur, kick, snare, hat. |
+| `src/engine/voices.ts` | Tone.js sounds. Tone can be a drawn cycle or a sample; the other instruments keep their own voices. |
+| `src/engine/instruments.ts` | The instrument catalog, grouped into families. |
+| `src/engine/catalogVoices.ts` | Shared synthesis for the catalog: sustained, plucked, bowed, blown, mallet, and drum. |
 | `src/engine/wave.ts` | Drawn cycles and cutoff motions: a stroke becomes a waveform and a beat-synced filter curve. |
 | `src/engine/samples.ts` | Stores sample files in IndexedDB, by a hash of their bytes. |
 | `src/engine/tuning.ts` | Scales as cents, and the root (key) as Hz. Pitch is stored as a scale degree. |

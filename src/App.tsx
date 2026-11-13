@@ -25,6 +25,7 @@ import { RegionNodeView } from './canvas/RegionNode';
 import { WaveLayer } from './canvas/WaveLayer';
 import { Engine } from './engine/engine';
 import { ExamplesPage } from './ExamplesPage';
+import { InstrumentsPage } from './InstrumentsPage';
 import { BLOCK_SIZE, GRID, PX_PER_BEAT, fitLength, formatBeats, linkBeats, linkPath, type XY } from './engine/geometry';
 import { isMelodic, type BlockKind } from './engine/scheduler';
 import { DEFAULT_SCALE_ID, SCALES, scaleById, type Scale, type Tuning } from './engine/tuning';
@@ -81,6 +82,7 @@ import { storeSample } from './engine/samples';
 import { MAX_RECORD_SECONDS } from './engine/recorder';
 import { useHistory } from './history';
 import { datedName, decodeShare, download, encodeShare, pieceFromFile, pieceToFile, sharedCode, shareUrl } from './share';
+import { layoutTake, MAX_TAKES, type Take } from './takes';
 
 const nodeTypes = { block: BlockNodeView, region: RegionNodeView };
 const edgeTypes = { link: LinkEdgeView };
@@ -105,6 +107,7 @@ function Studio() {
   const [nodes, setNodes, onNodesChange] = useNodesState(toNodes(initial));
   const [edges, setEdges, onEdgesChange] = useEdgesState(toEdges(initial));
   const [waves, setWaves] = useState<Wave[]>(initial.waves ?? []);
+  const [takes, setTakes] = useState<Take[]>(initial.takes ?? []);
   const [layer, setLayer] = useState<Layer>('beats');
   const [pencil, setPencil] = useState(false);
   const [selectedWaveId, setSelectedWaveId] = useState<string | null>(null);
@@ -152,14 +155,17 @@ function Studio() {
   }, [engine, waves, snap, regionKey]);
 
   useEffect(() => {
-    const timer = setTimeout(() => savePiece(toPiece(nodes, edges, { bpm, snap, scaleId, rootHz, scales: importedScales }, waves)), 400);
+    const timer = setTimeout(
+      () => savePiece(toPiece(nodes, edges, { bpm, snap, scaleId, rootHz, scales: importedScales }, waves, takes)),
+      400,
+    );
     return () => clearTimeout(timer);
-  }, [nodes, edges, waves, bpm, snap, scaleId, rootHz, importedScales]);
+  }, [nodes, edges, waves, takes, bpm, snap, scaleId, rootHz, importedScales]);
 
   // Everything undoable is in the piece; selection and view are not.
   const pieceJson = useMemo(
-    () => JSON.stringify(toPiece(nodes, edges, { bpm, snap, scaleId, rootHz, scales: importedScales }, waves)),
-    [nodes, edges, waves, bpm, snap, scaleId, rootHz, importedScales],
+    () => JSON.stringify(toPiece(nodes, edges, { bpm, snap, scaleId, rootHz, scales: importedScales }, waves, takes)),
+    [nodes, edges, waves, takes, bpm, snap, scaleId, rootHz, importedScales],
   );
 
   // Puts an undo step back, keeping what's selected and what React Flow has
@@ -183,6 +189,7 @@ function Studio() {
     setRootHz(piece.rootHz);
     setImportedScales(piece.scales);
     setWaves(piece.waves ?? []);
+    setTakes(piece.takes ?? []);
     setSelectedWaveId((id) => ((piece.waves ?? []).some((w) => w.id === id) ? id : null));
   };
   const { undo, redo, canUndo, canRedo } = useHistory(pieceJson, restore);
@@ -488,6 +495,7 @@ function Studio() {
     heard: selectedWave.role !== 'cycle' || heardCycleIds(waves, (at) => regionAt(nodes, at)?.id).has(selectedWave.id),
     sampled: !!regionAt(nodes, waveCenter(selectedWave.points))?.data.sample,
     points: selectedWave.points.length,
+    instrument: selectedWave.instrument ?? '',
   };
   let selectedLink: { beats: number; minBeats: number; bends: number; code: string } | undefined;
   if (selectedEdge) {
@@ -543,6 +551,7 @@ function Studio() {
     setNodes(toNodes(piece));
     setEdges(toEdges(piece));
     setWaves(piece.waves ?? []);
+    setTakes(piece.takes ?? []);
     setSelectedWaveId(null);
     setBpm(piece.bpm);
     setSnap(piece.snap);
@@ -552,7 +561,7 @@ function Studio() {
     setTimeout(() => void fitView({ padding: 0.25, duration: 300 }), 50);
   };
 
-  const currentPiece = () => toPiece(nodes, edges, { bpm, snap, scaleId, rootHz, scales: importedScales }, waves);
+  const currentPiece = () => toPiece(nodes, edges, { bpm, snap, scaleId, rootHz, scales: importedScales }, waves, takes);
 
   // A shared link opens its piece. A first visit just shows it; otherwise ask,
   // since it replaces the work saved in this browser. The fragment is cleared
@@ -662,7 +671,7 @@ function Studio() {
   const newPiece = async () => {
     const ok = await confirmDialog({
       title: 'Start a new piece?',
-      message: `Every block, link, region, and wave goes away. ${MOD}Z brings them back.`,
+      message: `Every block, link, region, wave, and take goes away. ${MOD}Z brings them back.`,
       confirmLabel: 'New piece',
       danger: true,
     });
@@ -731,15 +740,56 @@ function Studio() {
       else if ((e.metaKey || e.ctrlKey) && key === 'o') current.openFile();
       else if (e.key === '?' && !e.metaKey && !e.ctrlKey) current.go('guide');
       else if (e.key === 'Escape' && current.route !== 'canvas' && !document.querySelector('.confirm, .menu-list, .select-list')) current.go('canvas');
-      else if (e.metaKey || e.ctrlKey || e.repeat || !current.perform(key)) return;
+      else if (current.route === 'instruments' || e.metaKey || e.ctrlKey || e.repeat || !current.perform(key)) return;
       e.preventDefault();
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
 
+  const playInstrument = useCallback(
+    (kind: string, degree: number) => {
+      void engine.audition({ id: 'instrument', x: 0, y: 0, kind: kind as BlockKind, degree, every: 0, scale, rootHz });
+    },
+    [engine, scale, rootHz],
+  );
+
+  const saveTake = useCallback((take: Take) => {
+    setTakes((current) => [...current, take].slice(-MAX_TAKES));
+  }, []);
+
+  // A row of blocks, one per note, linked in time order. The piece already on
+  // the canvas stays; the row steps down if (80, 80) is already a block.
+  const placeTake = useCallback(
+    (take: Take) => {
+      const laid = layoutTake(
+        take.notes,
+        nodes.filter(isBlock).map((node) => node.position),
+      );
+      if (!laid.notes.length) return;
+      const ids = laid.notes.map(() => newId('b'));
+      const added: BlockNode[] = laid.notes.map((note, i) => ({
+        id: ids[i],
+        type: 'block',
+        position: laid.positions[i],
+        selected: true,
+        data: { kind: take.instrument as BlockKind, degree: note.degree, every: 0 },
+      }));
+      const links: LinkEdge[] = [];
+      for (let i = 0; i < ids.length - 1; i++) links.push({ id: newId('l'), type: 'link', source: ids[i], target: ids[i + 1] });
+      setNodes((current) => [...current.map((node) => (node.selected ? { ...node, selected: false } : node)), ...added]);
+      setEdges((current) => [...current.map((edge) => (edge.selected ? { ...edge, selected: false } : edge)), ...links]);
+      const count = laid.notes.length;
+      toast('success', `Placed ${take.name}`, `${count} ${count === 1 ? 'note' : 'notes'} on the canvas.`);
+      go('canvas');
+      setTimeout(() => void fitView({ padding: 0.25, duration: 300 }), 50);
+    },
+    [nodes, setNodes, setEdges, go, fitView],
+  );
+
   useEffect(() => {
-    document.title = route === 'canvas' ? 'Pulse Canvas' : `${route === 'examples' ? 'Examples' : 'Guide'} · Pulse Canvas`;
+    const page = route === 'canvas' ? '' : `${route[0].toUpperCase()}${route.slice(1)} · `;
+    document.title = `${page}Pulse Canvas`;
   }, [route]);
 
   return (
@@ -871,6 +921,20 @@ function Studio() {
                 onFire={(id) => engine.fire(id)}
                 onStraighten={straightenSelection}
                 onWaveRole={(role) => selectedWave && setWaves((ws) => ws.map((w) => (w.id === selectedWave.id ? { ...w, role } : w)))}
+                onWaveInstrument={(instrument) =>
+                  selectedWave &&
+                  setWaves((ws) =>
+                    ws.map((w) => {
+                      if (w.id !== selectedWave.id) return w;
+                      if (!instrument) {
+                        const next = { ...w };
+                        delete next.instrument;
+                        return next;
+                      }
+                      return { ...w, instrument };
+                    }),
+                  )
+                }
                 onDelete={() => {
                   if (!selectedWave) {
                     deleteSelection();
@@ -900,6 +964,18 @@ function Studio() {
 
           {route === 'examples' && <ExamplesPage onOpen={openExample} />}
           {route === 'guide' && <GuidePage />}
+          {route === 'instruments' && (
+            <InstrumentsPage
+              bpm={bpm}
+              snap={snap}
+              scale={scale}
+              rootHz={rootHz}
+              takes={takes}
+              onPlay={playInstrument}
+              onSaveTake={saveTake}
+              onPlace={placeTake}
+            />
+          )}
         </div>
         <ToastHost />
         <ConfirmHost />

@@ -3,9 +3,11 @@ import { DEFAULT_FX, DEFAULT_MIX, MIN_LEVEL, type Fx, type Mix } from './engine/
 import type { SampleRef } from './engine/samples';
 import { MAX_DELAY } from './engine/script';
 import type { BlockKind } from './engine/scheduler';
+import { instrumentById } from './engine/instruments';
 import { DEFAULT_SCALE_ID, ROOT_HZ, type Scale } from './engine/tuning';
 import { MAX_WAVE_POINTS, type WaveRole } from './engine/wave';
 import type { Piece } from './piece';
+import { MAX_TAKE_BEATS, MAX_TAKE_NOTES, MAX_TAKES, type Take, type TakeNote } from './takes';
 
 // Every piece that comes in — from this browser's storage, a file, or a shared
 // link — goes through here. Links and files come from anyone, so nothing is
@@ -16,7 +18,6 @@ import type { Piece } from './piece';
 
 const LIMITS = { blocks: 2000, links: 4000, regions: 200, waves: 400, scales: 100, notes: 1000, bends: 64, code: 4000, text: 200, id: 100 };
 const WAVE_ROLES: WaveRole[] = ['cycle', 'motion'];
-const KINDS: BlockKind[] = ['start', 'tone', 'pluck', 'bass', 'jawharp', 'khuur', 'kick', 'snare', 'hat'];
 const FAR = 1e6;
 
 type Raw = Record<string, unknown>;
@@ -80,6 +81,33 @@ function readSample(v: unknown): SampleRef | undefined {
   return { id: v.id, name: text(v.name) || 'sample' };
 }
 
+function readTakeNote(v: unknown): TakeNote | null {
+  if (!isObject(v)) return null;
+  if (typeof v.beat !== 'number' || typeof v.beats !== 'number' || typeof v.degree !== 'number' || typeof v.velocity !== 'number') return null;
+  if (![v.beat, v.beats, v.degree, v.velocity].every((n) => Number.isFinite(n))) return null;
+  if (v.beats <= 0) return null;
+  return {
+    beat: num(v.beat, 0, MAX_TAKE_BEATS, 0),
+    degree: int(v.degree, -200, 200, 0),
+    beats: num(v.beats, 1 / 16, MAX_TAKE_BEATS, 1 / 16),
+    velocity: num(v.velocity, 0, 1, 1),
+  };
+}
+
+/** A recorded performance. Unknown instruments and notes that aren't notes are dropped. */
+function readTake(v: unknown): Take | null {
+  if (!isObject(v) || !id(v.id)) return null;
+  const instrument = text(v.instrument, LIMITS.id);
+  const known = instrument ? instrumentById(instrument) : undefined;
+  if (!known) return null;
+  return {
+    id: v.id as string,
+    name: text(v.name) || known.name,
+    instrument,
+    notes: list(v.notes, MAX_TAKE_NOTES).map(readTakeNote).filter((note): note is TakeNote => note !== null),
+  };
+}
+
 /** A piece from anywhere, made safe to use. Throws if it isn't a piece at all. */
 export function readPiece(raw: unknown): Piece {
   if (!isObject(raw) || raw.version !== 1 || !Array.isArray(raw.blocks) || !Array.isArray(raw.links)) {
@@ -89,7 +117,7 @@ export function readPiece(raw: unknown): Piece {
 
   const blocks = unique(
     list(raw.blocks, LIMITS.blocks).map((v) => {
-      if (!isObject(v) || !id(v.id) || !KINDS.includes(v.kind as BlockKind)) return null;
+      if (!isObject(v) || !id(v.id) || (v.kind !== 'start' && !instrumentById(String(v.kind ?? '')))) return null;
       const code = text(v.code, LIMITS.code);
       return {
         id: v.id as string,
@@ -146,9 +174,13 @@ export function readPiece(raw: unknown): Piece {
       if (!isObject(v) || !id(v.id) || !WAVE_ROLES.includes(v.role as WaveRole)) return null;
       const points = list(v.points, MAX_WAVE_POINTS).map(point).filter((p) => p !== null);
       if (points.length < 2) return null;
-      return { id: v.id as string, role: v.role as WaveRole, points };
+      const instrument = text(v.instrument, LIMITS.id);
+      const known = instrument && instrumentById(instrument) ? instrument : '';
+      return { id: v.id as string, role: v.role as WaveRole, points, ...(known ? { instrument: known } : {}) };
     }),
   );
+
+  const takes = unique(list(raw.takes, MAX_TAKES).map(readTake));
 
   return {
     version: 1,
@@ -161,5 +193,6 @@ export function readPiece(raw: unknown): Piece {
     links,
     regions,
     waves,
+    takes,
   };
 }

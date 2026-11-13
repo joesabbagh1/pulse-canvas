@@ -5,6 +5,7 @@ const TABS: { route: Route; label: string }[] = [
   { route: 'canvas', label: 'Canvas' },
   { route: 'examples', label: 'Examples' },
   { route: 'guide', label: 'Guide' },
+  { route: 'instruments', label: 'Instruments' },
 ];
 
 /** m:ss */
@@ -41,15 +42,18 @@ export function TopBar(props: Props) {
     <header className="app-bar">
       <div className="app-bar-group">
         <a className="brand" href={routeHref('canvas')} aria-label="Pulse Canvas">
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <circle cx="12" cy="12" r="9.5" fill="none" stroke="currentColor" strokeWidth="1.6" opacity="0.45" />
-            <path d="M2.5 12h4l2-5 3.5 10 2.5-7 1.5 2h5.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-          <span className="brand-name">Pulse Canvas</span>
+          <span className="brand-index">00</span>
+          <span className="brand-name">Pulse</span>
         </a>
         <nav className="tabs" aria-label="Pages">
-          {TABS.map((t) => (
-            <a key={t.route} href={routeHref(t.route)} className={`tab${route === t.route ? ' is-active' : ''}`} aria-current={route === t.route ? 'page' : undefined}>
+          {TABS.map((t, index) => (
+            <a
+              key={t.route}
+              href={routeHref(t.route)}
+              data-n={String(index + 1).padStart(2, '0')}
+              className={`tab${route === t.route ? ' is-active' : ''}`}
+              aria-current={route === t.route ? 'page' : undefined}
+            >
               {t.label}
             </a>
           ))}
