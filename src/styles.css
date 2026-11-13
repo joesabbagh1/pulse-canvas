@@ -2036,110 +2036,823 @@ input {
   font-weight: 600;
 }
 
-/* Two octaves, white keys full height and black keys shorter, sitting on the cracks. */
-.piano {
-  position: relative;
-  height: 188px;
-  min-width: 480px;
-  touch-action: none;
-  user-select: none;
+/* A playing surface for the selected instrument. It scrolls inside the player. */
+.instrument-surface {
+  max-height: min(460px, 58vh);
+  overflow: auto;
+  touch-action: pan-x pan-y;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--c, var(--accent)) 10%, transparent), transparent 72px),
+    var(--surface);
+  border: 1px solid var(--hairline);
 }
 
-.piano-whites {
-  display: flex;
-  height: 100%;
-}
-
-.piano-white,
-.piano-black {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 3px;
-  padding: 0 2px 8px;
+.note-control,
+.hit {
   touch-action: none;
   user-select: none;
   cursor: pointer;
 }
 
-.piano-white {
-  position: relative;
-  flex: 1 0 0;
-  min-width: 0;
-  height: 100%;
-  border: 1px solid #d5ddd8;
-  border-radius: 0;
-  background: #e7eeea;
-  color: #101413;
+.pitch {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  max-width: 100%;
+  line-height: 1;
+  pointer-events: none;
 }
 
-.piano-white.is-down {
+.pitch-name,
+.pitch-hint,
+.staff-syllable,
+.harm-label {
+  font-family: var(--num);
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.pitch-name sub,
+.pitch-name sup {
+  font-size: 8px;
+}
+
+.pitch-hint {
+  opacity: 0.7;
+}
+
+.note-control.is-down,
+.hit.is-down {
   background: var(--accent);
   color: #04110e;
 }
 
-.piano-black {
+/* ---------- keyboard ---------- */
+
+.kb {
+  display: flex;
+  min-width: max-content;
+  height: 196px;
+}
+
+.kb-bellows {
+  width: 54px;
+  flex: none;
+  background: repeating-linear-gradient(90deg, #1a2420 0 6px, #101614 6px 10px);
+  border-right: 1px solid var(--hairline);
+}
+
+.kb-bed {
+  position: relative;
+  flex: 1;
+  min-width: max-content;
+}
+
+.kb-whites {
+  display: flex;
+  height: 100%;
+}
+
+.kb-white,
+.kb-raised {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 2px 8px;
+}
+
+.kb-white {
+  width: 36px;
+  height: 100%;
+  border: 1px solid #d5ddd8;
+  background: #e7eeea;
+  color: #101413;
+}
+
+.kb-raised {
   position: absolute;
   top: 0;
   z-index: 2;
-  width: 4.3%;
+  width: 22px;
   height: 62%;
   transform: translateX(-50%);
   border: 1px solid #070809;
-  border-radius: 0;
   background: #121816;
   color: var(--accent);
-  padding-bottom: 6px;
 }
 
-.piano-black.is-down {
+.kb-raised.is-inflected {
+  background: #24312c;
+  color: #d7fff4;
+}
+
+.kb-raised.is-down {
   height: 60%;
   background: #04110e;
+  color: var(--accent);
 }
 
-.piano-note {
-  max-width: 100%;
-  overflow: hidden;
-  font-family: var(--num);
-  font-size: 10px;
-  font-weight: 500;
-  line-height: 1;
+.kb-organ .kb-white {
+  height: 78%;
+  align-self: flex-end;
+  background: #f2f0e8;
 }
 
-.piano-black .piano-note {
-  font-size: 9px;
-  font-weight: 500;
+.kb-organ .kb-bed {
+  background: #2a2118;
 }
 
-.piano-hint {
-  font: 9px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
-  opacity: 0.7;
+.kb-harpsichord .kb-white {
+  background: #f3ead7;
+  border-color: #c8b89a;
 }
 
-.drum-pad {
+.kb-clavinet .kb-white {
+  background: #f7f1c8;
+  border-color: #d5c56a;
+}
+
+.kb-rhodes .kb-white {
+  background: #d7e3ea;
+  border-color: #b7c6cf;
+}
+
+.kb-celesta .kb-white {
+  width: 28px;
+  background: #f4f7f8;
+  border-color: #c5d0d4;
+}
+
+.kb-accordion .kb-white {
+  background: #f7f4ee;
+}
+
+/* ---------- strings ---------- */
+
+.board {
+  display: flex;
+  gap: 0;
+  min-height: 280px;
+  padding: 12px;
+}
+
+.board.is-fretted {
+  flex-direction: column;
+  min-width: calc(var(--stops) * 46px);
+  min-height: calc(var(--strings) * 46px + 28px);
+}
+
+.board:not(.is-fretted) {
+  min-height: calc(var(--stops) * 28px);
+  height: calc(var(--stops) * 28px);
+}
+
+.board-nut {
+  background: #d7e0db;
+}
+
+.board:not(.is-fretted) .board-nut {
+  width: 10px;
+  flex: none;
+}
+
+.board.is-fretted .board-nut {
+  height: 10px;
+}
+
+.board-strings {
+  display: flex;
+  flex: 1;
+  position: relative;
+}
+
+.board:not(.is-fretted) .board-strings {
+  flex-direction: row;
+}
+
+.board.is-fretted .board-strings {
+  flex-direction: column;
+}
+
+.board-string {
+  position: relative;
+  flex: 1;
+}
+
+.board:not(.is-fretted) .board-string {
+  border-left: 1px solid color-mix(in srgb, var(--c, var(--accent)) 55%, #6d7a74);
+  margin: 0 10px;
+}
+
+.board.is-fretted .board-string {
+  border-top: 1px solid color-mix(in srgb, var(--c, var(--accent)) 55%, #6d7a74);
+  min-height: 42px;
+}
+
+.board-stop {
+  position: absolute;
+  z-index: 1;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: min(280px, 100%);
-  height: 200px;
-  border-radius: 28px;
-  border: 1px solid color-mix(in srgb, var(--c, var(--accent)) 65%, #000);
-  background: radial-gradient(circle at 50% 38%, color-mix(in srgb, var(--c, var(--accent)) 78%, #fff), var(--c, var(--accent)) 55%, #14161c);
-  color: #fff;
-  font-size: 22px;
-  font-weight: 650;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
-  box-shadow: inset 0 -10px 0 rgba(0, 0, 0, 0.28);
-  touch-action: none;
-  user-select: none;
-  cursor: pointer;
+  min-width: 28px;
+  min-height: 22px;
+  padding: 2px 3px;
+  border: 1px solid var(--control-border);
+  background: var(--control);
+  color: var(--text);
 }
 
-.drum-pad.is-down {
-  transform: translateY(4px);
-  box-shadow: inset 0 8px 18px rgba(0, 0, 0, 0.4);
-  filter: brightness(1.08);
+.board:not(.is-fretted) .board-stop {
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.board.is-fretted .board-stop {
+  top: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.board-stop.is-down {
+  transform: translate(-50%, -50%);
+}
+
+.open-strings {
+  position: relative;
+  min-height: 220px;
+  padding: 16px 12px 28px;
+}
+
+.open-string-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  min-width: max-content;
+  height: 200px;
+}
+
+.open-string {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  width: 18px;
+  height: calc(46px + var(--reach) * 140px);
+  padding-bottom: 6px;
+  border-left: 1px solid color-mix(in srgb, var(--c, var(--accent)) 70%, #d7e0db);
+  border-right: 1px solid color-mix(in srgb, var(--c, var(--accent)) 30%, #1c2422);
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--c, var(--accent)) 18%, transparent), transparent);
+  color: var(--text);
+}
+
+.open-string.is-c {
+  border-left-color: #c4554a;
+}
+
+.open-string.is-f {
+  border-left-color: #4a78c4;
+}
+
+.is-koto .open-string-row {
+  align-items: center;
+  height: 120px;
+}
+
+.is-koto .open-string {
+  width: 64px;
+  height: 8px;
+  border: none;
+  border-top: 2px solid color-mix(in srgb, var(--c, var(--accent)) 70%, #d7e0db);
+  background: none;
+}
+
+.dulcimer-body {
+  position: absolute;
+  inset: 28px 8px;
+  background: #3a2a1c;
+  clip-path: polygon(8% 0, 92% 0, 100% 100%, 0 100%);
+}
+
+.is-dulcimer .open-string {
+  width: 28px;
+  height: calc(30px + var(--reach) * 90px);
+}
+
+/* ---------- winds, pipes, tongue ---------- */
+
+.wind,
+.pipes,
+.tongue,
+.brass,
+.bars,
+.kalimba,
+.steel-pan,
+.heads,
+.stabs,
+.note-grid,
+.staff {
+  position: relative;
+}
+
+.pipes,
+.bars,
+.heads,
+.stabs {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  min-width: max-content;
+  padding: 16px;
+}
+
+.pipe,
+.bar,
+.head,
+.stab {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 6px 2px;
+  color: var(--text);
+  border: 1px solid var(--control-border);
+  background: color-mix(in srgb, var(--c, var(--accent)) 22%, var(--control));
+}
+
+.pipe {
+  width: 22px;
+  height: calc(36px + var(--reach) * 150px);
+  border-radius: 8px 8px 2px 2px;
+}
+
+.pipes.is-bottle .pipe {
+  width: 28px;
+  border-radius: 10px 10px 4px 4px;
+  clip-path: polygon(35% 0, 65% 0, 65% 18%, 90% 28%, 90% 100%, 10% 100%, 10% 28%, 35% 18%);
+}
+
+.pipes.is-calliope .pipe {
+  background: color-mix(in srgb, #d7c7a1 35%, var(--control));
+}
+
+.tongue {
+  display: grid;
+  place-items: center;
+  min-height: 240px;
+  padding: 20px;
+}
+
+.tongue-frame {
+  width: min(280px, 80%);
+  height: 180px;
+  border: 10px solid color-mix(in srgb, var(--c, var(--accent)) 55%, #6d7a74);
+  border-bottom: none;
+  border-radius: 140px 140px 0 0;
+}
+
+.tongue-blade {
+  position: absolute;
+  top: 36px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 72px;
+}
+
+.tongue-note {
+  display: flex;
+  justify-content: center;
+  padding: 4px;
+  border: 1px solid var(--control-border);
+  background: var(--control);
+  color: var(--text);
+}
+
+.wind {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-height: 180px;
+  padding: 16px;
+}
+
+.wind.is-upright {
+  align-items: stretch;
+  min-height: 280px;
+}
+
+.wind-body {
+  position: relative;
+  display: flex;
+  flex: 1;
+  align-items: center;
+  min-height: 72px;
+  padding: 12px 18px;
+  border: 1px solid color-mix(in srgb, var(--c, var(--accent)) 45%, var(--hairline));
+  border-radius: 40px;
+  background: color-mix(in srgb, var(--c, var(--accent)) 12%, var(--control));
+}
+
+.wind.is-upright .wind-body {
+  flex-direction: column;
+  width: min(220px, 100%);
+  margin-inline: auto;
+  border-radius: 28px 28px 48px 48px;
+}
+
+.wind.is-sax .wind-body {
+  border-radius: 40px 40px 70px 16px;
+}
+
+.wind.is-bassoon .wind-body {
+  border-radius: 20px;
+}
+
+.wind.is-ocarina .wind-body {
+  border-radius: 50%;
+  min-height: 220px;
+}
+
+.wind-bell {
+  position: absolute;
+  background: color-mix(in srgb, var(--c, var(--accent)) 30%, #1c2422);
+}
+
+.wind:not(.is-upright) .wind-bell {
+  right: 8px;
+  width: 18px;
+  height: 46px;
+  border-radius: 0 12px 12px 0;
+}
+
+.wind.is-upright .wind-bell {
+  bottom: 8px;
+  width: 64%;
+  height: 16px;
+  border-radius: 0 0 20px 20px;
+}
+
+.wind-holes,
+.harm-row,
+.brass-notes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  position: relative;
+  z-index: 1;
+}
+
+.wind.is-upright .wind-holes {
+  flex-direction: column;
+  align-items: center;
+}
+
+.wind-hole,
+.brass-note,
+.grid-cell,
+.pan-note {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 36px;
+  min-height: 28px;
+  padding: 3px 4px;
+  border: 1px solid var(--control-border);
+  border-radius: 50%;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.harm-row {
+  align-items: center;
+  padding: 8px 12px;
+}
+
+.harm-label {
+  width: 42px;
+  color: var(--muted);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.bag-drones {
+  display: flex;
+  gap: 8px;
+  align-self: stretch;
+}
+
+.bag-drones span {
+  width: 8px;
+  background: color-mix(in srgb, var(--c, var(--accent)) 40%, #6d7a74);
+  border-radius: 6px;
+}
+
+.bag-drones span:first-child {
+  height: 78%;
+}
+
+/* ---------- brass ---------- */
+
+.brass {
+  min-height: 180px;
+  padding: 16px;
+}
+
+.brass-body {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  height: 72px;
+  margin-bottom: 12px;
+}
+
+.brass-bell {
+  width: 70%;
+  height: 28px;
+  border-radius: 20px 40px 40px 20px;
+  background: color-mix(in srgb, var(--c, var(--accent)) 28%, #c2b8a2);
+}
+
+.is-tuba .brass-bell {
+  width: 46%;
+  height: 64px;
+  border-radius: 40px 40px 12px 12px;
+}
+
+.is-trombone .brass-bell {
+  width: 34%;
+}
+
+.brass-mute {
+  width: 18px;
+  height: 18px;
+  margin-left: -28px;
+  border-radius: 50%;
+  background: #101413;
+}
+
+.is-section .brass-body {
+  justify-content: flex-start;
+  gap: 18px;
+}
+
+.is-section .brass-body span {
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--c, var(--accent)) 35%, #c2b8a2);
+}
+
+.brass-notes.is-slide {
+  padding-top: 8px;
+  border-top: 4px solid #8d928c;
+}
+
+.is-horn {
+  height: 320px;
+}
+
+.horn-coil {
+  position: absolute;
+  inset: 18%;
+  border: 14px solid color-mix(in srgb, var(--c, var(--accent)) 30%, #c2b8a2);
+  border-radius: 50%;
+}
+
+.is-horn .brass-note {
+  position: absolute;
+  transform: translate(-50%, -50%);
+}
+
+/* ---------- bars, drums, grid, staff ---------- */
+
+.bar {
+  width: 28px;
+  height: calc(28px + var(--reach) * 120px);
+  border-radius: 3px;
+}
+
+.bars.is-wood .bar {
+  background: color-mix(in srgb, #a56b3c 55%, var(--control));
+}
+
+.bars.is-metal .bar,
+.bars.is-comb .bar,
+.bars.is-bells .bar,
+.bars.is-tube .bar {
+  background: color-mix(in srgb, #d5dde2 28%, var(--control));
+}
+
+.bars.is-tube .bar,
+.bars.is-bells .bar {
+  border-radius: 10px;
+}
+
+.head {
+  width: calc(36px + var(--reach) * 48px);
+  height: calc(36px + var(--reach) * 48px);
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 50% 45%, color-mix(in srgb, var(--c, var(--accent)) 55%, #fff), var(--c, var(--accent)) 42%, #14161c 70%);
+  color: #fff;
+}
+
+.heads.is-electronic .head {
+  border-radius: 8px;
+}
+
+.heads.is-kettle .head {
+  border-radius: 50% 50% 46% 46%;
+}
+
+.stab {
+  width: 16px;
+  height: 72px;
+  background: var(--c, var(--accent));
+}
+
+.kalimba {
+  min-height: 220px;
+  padding: 28px 16px 16px;
+}
+
+.kalimba-bridge {
+  height: 14px;
+  margin: 0 8px 8px;
+  background: #3a2a1c;
+}
+
+.kalimba-tines {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: max-content;
+}
+
+.kalimba-tine {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  width: 32px;
+  height: auto;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text);
+}
+
+.kalimba-tine::before {
+  content: '';
+  width: 12px;
+  height: calc(36px + var(--reach) * 100px);
+  border: 1px solid #8d928c;
+  border-top: none;
+  background: linear-gradient(#d7e0db, #8d928c);
+}
+
+.kalimba-tine.is-down {
+  background: none;
+  color: var(--accent);
+}
+
+.kalimba-tine.is-down::before {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.steel-pan {
+  height: 340px;
+  margin: 16px;
+  border: 8px solid color-mix(in srgb, var(--c, var(--accent)) 40%, #6d7a74);
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 46%, #24302c, #101413 70%);
+}
+
+.pan-note {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  background: color-mix(in srgb, var(--c, var(--accent)) 24%, #101413);
+}
+
+.note-grid {
+  display: grid;
+  gap: 4px;
+  width: max-content;
+  min-width: 100%;
+  padding: 12px;
+}
+
+.grid-cell {
+  border-radius: 4px;
+  min-height: 42px;
+  background: color-mix(in srgb, var(--c, var(--accent)) 16%, var(--control));
+}
+
+.note-grid.is-round .grid-cell {
+  border-radius: 50%;
+  min-height: 40px;
+}
+
+.grid-gap {
+  min-height: 42px;
+}
+
+.staff {
+  height: 220px;
+  margin: 12px;
+}
+
+.staff-lines {
+  position: absolute;
+  inset: 22% 12px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.staff-lines span {
+  height: 1px;
+  background: var(--muted);
+}
+
+.staff-notes {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  height: 100%;
+  min-width: max-content;
+  gap: 8px;
+  padding: 0 16px;
+}
+
+.staff-note {
+  position: relative;
+  width: 44px;
+  height: 100%;
+  background: none;
+  border: none;
+  color: var(--text);
+}
+
+.staff-head {
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  top: var(--pitch);
+  height: 12px;
+  margin-top: -6px;
+  border-radius: 50%;
+  background: currentColor;
+  transform: rotate(-18deg);
+}
+
+.staff-note.is-down .staff-head {
+  background: #04110e;
+}
+
+.staff-word {
+  position: absolute;
+  top: 8px;
+  left: 12px;
+  z-index: 1;
+  font-family: var(--num);
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  text-transform: lowercase;
+  color: var(--muted);
+}
+
+.staff-note .pitch {
+  position: absolute;
+  bottom: 6px;
+  left: 0;
+  right: 0;
+}
+
+.hit {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: min(280px, 100%);
+  height: 220px;
+  margin: 8px;
+  border: 1px solid color-mix(in srgb, var(--c, var(--accent)) 65%, #000);
+  background: radial-gradient(circle at 50% 38%, color-mix(in srgb, var(--c, var(--accent)) 78%, #fff), var(--c, var(--accent)) 46%, #14161c);
+  color: #fff;
+  font-size: 16px;
+  font-weight: 650;
+}
+
+.hit svg {
+  width: 92px;
+  height: 92px;
+}
+
+.hit.is-down {
+  transform: translateY(3px);
 }
 
 /* ---------- smaller screens ---------- */
@@ -2153,15 +2866,40 @@ input {
 
 /* The sidebar moves under the canvas, and the bar wraps onto two rows. */
 @media (max-width: 860px) {
+  .app {
+    overflow-x: hidden;
+  }
+
   .app-bar {
     flex-wrap: wrap;
     gap: 8px;
+    max-width: 100%;
+    min-width: 0;
     padding: 8px 12px;
   }
 
-  .transport {
+  .app-bar-group {
+    min-width: 0;
+  }
+
+  .app-bar-group:first-child {
+    flex: 1 0 100%;
+    max-width: 100%;
+  }
+
+  .tabs {
+    flex: 1;
+    min-width: 0;
+    overflow-x: auto;
+  }
+
+  .transport,
+  .actions {
     order: 3;
-    width: 100%;
+  }
+
+  .transport {
+    flex: 1 1 auto;
   }
 
   .workspace {
@@ -2189,7 +2927,7 @@ input {
 @media (max-width: 900px) {
   .instruments-page {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(0, 220px) minmax(0, 1fr);
+    grid-template-rows: minmax(0, 160px) minmax(0, 1fr);
   }
 
   .instrument-catalog {

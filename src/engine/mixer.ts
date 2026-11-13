@@ -2,6 +2,7 @@ import * as Tone from 'tone';
 import type { BeatClock } from './clock';
 import type { Groove } from './groove';
 import type { GraphBlock, NoteShape } from './scheduler';
+import type { NoteGate } from './holds';
 import { Voices } from './voices';
 import { EMPTY_BUS_WAVES, motionSum, movedTone, type BusWaves, type MotionCurve } from './wave';
 
@@ -202,6 +203,13 @@ export class Mixer {
     const bus = (block.bus && this.buses.get(block.bus)) || this.canvas;
     const sampleId = bus.settings?.sample;
     bus.voices.play(block, time, secondsPerBeat, sampleId ? this.samples.get(sampleId) : undefined, shape);
+  }
+
+  /** A live note on the canvas bus. It holds until the gate is released. */
+  attack(block: GraphBlock, time: number, secondsPerBeat: number, velocity: number): NoteGate {
+    const bus = this.canvas;
+    const sampleId = bus.settings?.sample;
+    return bus.voices.attack(block, time, secondsPerBeat, velocity, sampleId ? this.samples.get(sampleId) : undefined);
   }
 
   silence(time: number) {

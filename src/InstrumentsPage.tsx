@@ -1,55 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react';
 import { CATEGORIES, instrumentById, instrumentsIn, type Instrument } from './engine/instruments';
+import { PLAY_KEYS, degreeForKey, hintFor, initialFocus, notesInRange, playingFor, playingHint, shiftFocus, type PlayNote } from './engine/playing';
 import { describePitch, type Scale } from './engine/tuning';
+import { InstrumentSurface } from './instruments/Surface';
 import { newId } from './piece';
-import {
-  MAX_TAKE_BEATS,
-  MAX_TAKE_NOTES,
-  clipTake,
-  defaultTakeName,
-  keyDegree,
-  type Take,
-  type TakeNote,
-} from './takes';
-
-// Two octaves, C to C: 15 white keys. The black keys sit in the C-major groups
-// of two and three. Computer keys cover the lower octave, the same way a
-// piano roll does: a s d f g h j k white, w e t y u black.
-const WHITE_STEPS = [0, 2, 4, 5, 7, 9, 11];
-const WHITES: number[] = [];
-for (let octave = 0; octave < 2; octave++) for (const step of WHITE_STEPS) WHITES.push(octave * 12 + step);
-WHITES.push(24);
-
-const BLACKS = [1, 3, 6, 8, 10, 13, 15, 18, 20, 22].map((semi) => {
-  let index = 0;
-  for (let i = 0; i < WHITES.length; i++) if (WHITES[i] < semi) index = i;
-  return { semi, left: ((index + 1) / WHITES.length) * 100 };
-});
-
-const COMPUTER_WHITE: Record<string, number> = { a: 0, s: 2, d: 4, f: 5, g: 7, h: 9, j: 11, k: 12 };
-const COMPUTER_BLACK: Record<string, number> = { w: 1, e: 3, t: 6, y: 8, u: 10 };
-const KEY_HINT = new Map<number, string>([
-  [0, 'A'],
-  [2, 'S'],
-  [4, 'D'],
-  [5, 'F'],
-  [7, 'G'],
-  [9, 'H'],
-  [11, 'J'],
-  [12, 'K'],
-  [1, 'W'],
-  [3, 'E'],
-  [6, 'T'],
-  [8, 'Y'],
-  [10, 'U'],
-]);
-
-function computerSemitone(key: string): number | null {
-  const letter = key.toLowerCase();
-  if (letter in COMPUTER_WHITE) return COMPUTER_WHITE[letter];
-  if (letter in COMPUTER_BLACK) return COMPUTER_BLACK[letter];
-  return null;
-}
+import { MAX_TAKE_BEATS, MAX_TAKE_NOTES, clipTake, defaultTakeName, type Take, type TakeNote } from './takes';
 
 const isTyping = (target: EventTarget | null) =>
   target instanceof HTMLElement && !!target.closest('input[type="text"], input[type="number"], select, textarea');
@@ -63,6 +18,7 @@ function velocityFrom(event: { pointerType: string; pressure: number }): number 
 interface Hold {
   count: number;
   degree: number;
+  audio: number;
 }
 
 interface OpenNote {
@@ -77,7 +33,11 @@ interface Props {
   scale: Scale;
   rootHz: number;
   takes: readonly Take[];
-  onPlay: (instrumentId: string, degree: number) => void;
+  notes: readonly PlayNote[];
+  focus: number;
+  onShift: (direction: -1 | 1) => void;
+  onAttack: (instrumentId: string, degree: number, velocity: number) => number;
+  onRelease: (id: number) => void;
   onSaveTake: (take: Take) => void;
   onPlace: (take: Take) => void;
 }
@@ -86,7 +46,19 @@ interface Props {
  * Pointer and computer-key performance. Note-ons and note-offs are beats on
  * the piece clock. A second Record press, 64 notes, or 32 beats ends the take.
  */
-function useRecorder({ bpm, snap, scale, instrument, takes, onPlay, onSaveTake }: Omit<Props, 'onPlace' | 'rootHz'> & { instrument: Instrument }) {
+function useRecorder({
+  bpm,
+  snap,
+  scale,
+  instrument,
+  takes,
+  notes,
+  focus,
+  onShift,
+  onAttack,
+  onRelease,
+  onSaveTake,
+}: Omit<Props, 'onPlace' | 'rootHz'> & { instrument: Instrument }) {
   const [recording, setRecording] = useState(false);
   const [held, setHeld] = useState<ReadonlySet<number>>(() => new Set());
   const [padHeld, setPadHeld] = useState(false);
@@ -97,15 +69,23 @@ function useRecorder({ bpm, snap, scale, instrument, takes, onPlay, onSaveTake }
   const scaleRef = useRef(scale);
   const instrumentRef = useRef(instrument);
   const takesRef = useRef(takes);
-  const onPlayRef = useRef(onPlay);
+  const onAttackRef = useRef(onAttack);
+  const onReleaseRef = useRef(onRelease);
   const onSaveRef = useRef(onSaveTake);
+  const notesRef = useRef(notes);
+  const focusRef = useRef(focus);
+  const onShiftRef = useRef(onShift);
   bpmRef.current = bpm;
   snapRef.current = snap;
   scaleRef.current = scale;
   instrumentRef.current = instrument;
   takesRef.current = takes;
-  onPlayRef.current = onPlay;
+  onAttackRef.current = onAttack;
+  onReleaseRef.current = onRelease;
   onSaveRef.current = onSaveTake;
+  notesRef.current = notes;
+  focusRef.current = focus;
+  onShiftRef.current = onShift;
 
   const recordingRef = useRef(false);
   const clock = useRef({ t: 0, beat: 0 });
@@ -113,6 +93,7 @@ function useRecorder({ bpm, snap, scale, instrument, takes, onPlay, onSaveTake }
   const voices = useRef(new Map<string, OpenNote>());
   const pending = useRef<TakeNote[]>([]);
   const pointers = useRef(new Map<number, string>());
+  const keyTokens = useRef(new Map<string, string>());
 
   const readBeat = () => {
     const now = performance.now();
@@ -126,7 +107,7 @@ function useRecorder({ bpm, snap, scale, instrument, takes, onPlay, onSaveTake }
     const semis = new Set<number>();
     let pad = false;
     for (const token of holds.current.keys()) {
-      if (token.startsWith('s:')) semis.add(Number(token.slice(2)));
+      if (token.startsWith('d:')) semis.add(Number(token.slice(2)));
       else pad = true;
     }
     setHeld(semis);
@@ -179,9 +160,9 @@ function useRecorder({ bpm, snap, scale, instrument, takes, onPlay, onSaveTake }
       hold.count += 1;
       return;
     }
-    holds.current.set(token, { count: 1, degree });
+    const audio = onAttackRef.current(instrumentRef.current.id, degree, velocity);
+    holds.current.set(token, { count: 1, degree, audio });
     syncHeld();
-    onPlayRef.current(instrumentRef.current.id, degree);
     if (!recordingRef.current) return;
     const beat = readBeat();
     if (beat >= MAX_TAKE_BEATS || pending.current.length + voices.current.size >= MAX_TAKE_NOTES) {
@@ -199,6 +180,7 @@ function useRecorder({ bpm, snap, scale, instrument, takes, onPlay, onSaveTake }
     if (hold.count > 0) return;
     holds.current.delete(token);
     syncHeld();
+    onReleaseRef.current(hold.audio);
     const voice = voices.current.get(token);
     voices.current.delete(token);
     if (!voice || !recordingRef.current) return;
@@ -258,19 +240,26 @@ function useRecorder({ bpm, snap, scale, instrument, takes, onPlay, onSaveTake }
   useEffect(() => {
     const down = (event: KeyboardEvent) => {
       if (event.repeat || event.metaKey || event.ctrlKey || event.altKey || isTyping(event.target)) return;
-      const semi = computerSemitone(event.key);
-      if (semi === null) return;
+      const key = event.key.toLowerCase();
+      if (key === 'z' || key === 'x') {
+        event.preventDefault();
+        onShiftRef.current(key === 'x' ? 1 : -1);
+        return;
+      }
+      if (!PLAY_KEYS.includes(key as (typeof PLAY_KEYS)[number])) return;
       event.preventDefault();
       const pitched = instrumentRef.current.pitched;
-      const token = pitched ? `s:${semi}` : `k:${event.key.toLowerCase()}`;
-      const degree = pitched ? keyDegree(semi, scaleRef.current) : 0;
+      const degree = pitched ? degreeForKey(key, focusRef.current, scaleRef.current, notesRef.current) : 0;
+      if (degree === null) return;
+      const token = pitched ? `d:${degree}` : `k:${key}`;
+      keyTokens.current.set(key, token);
       pressRef.current(token, degree, 1);
     };
     const up = (event: KeyboardEvent) => {
-      const semi = computerSemitone(event.key);
-      if (semi === null) return;
-      const pitched = instrumentRef.current.pitched;
-      const token = pitched ? `s:${semi}` : `k:${event.key.toLowerCase()}`;
+      const key = event.key.toLowerCase();
+      const token = keyTokens.current.get(key);
+      if (!token) return;
+      keyTokens.current.delete(key);
       releaseRef.current(token);
     };
     const blur = () => releaseAllRef.current();
@@ -281,6 +270,7 @@ function useRecorder({ bpm, snap, scale, instrument, takes, onPlay, onSaveTake }
       window.removeEventListener('keydown', down);
       window.removeEventListener('keyup', up);
       window.removeEventListener('blur', blur);
+      releaseAllRef.current();
       if (!recordingRef.current) return;
       recordingRef.current = false;
       const notes = flushRef.current();
@@ -319,23 +309,48 @@ function useRecorder({ bpm, snap, scale, instrument, takes, onPlay, onSaveTake }
   };
 }
 
-export function InstrumentsPage({ bpm, snap, scale, rootHz, takes, onPlay, onSaveTake, onPlace }: Props) {
+export function InstrumentsPage({ bpm, snap, scale, rootHz, takes, onAttack, onRelease, onSaveTake, onPlace }: Omit<Props, 'notes' | 'focus' | 'onShift'>) {
   const [instrumentId, setInstrumentId] = useState('tone');
   const instrument = instrumentById(instrumentId) ?? instrumentById('tone')!;
-  const play = useRecorder({ bpm, snap, scale, instrument, takes, onPlay, onSaveTake });
+  const playing = playingFor(instrument.id) ?? playingFor('tone')!;
+  const notes = useMemo(
+    () => ('low' in playing ? notesInRange(scale, rootHz, playing.low, playing.high) : []),
+    [playing, rootHz, scale],
+  );
+  const [focus, setFocus] = useState(() => initialFocus(notes, scale));
+  useEffect(() => {
+    setFocus(initialFocus(notes, scale));
+  }, [notes, scale]);
+  const play = useRecorder({
+    bpm,
+    snap,
+    scale,
+    instrument,
+    takes,
+    notes,
+    focus,
+    onShift: (direction) => setFocus((current) => shiftFocus(current, scale, notes, direction)),
+    onAttack,
+    onRelease,
+    onSaveTake,
+  });
   const hue = CATEGORIES.find((category) => category.id === instrument.category)?.hue ?? 200;
   const swatch = { '--c': `hsl(${hue} 62% 58%)` } as CSSProperties;
   const root = describePitch(0, scale, rootHz);
-
-  const labels = useMemo(() => {
-    const out = new Map<number, { name: string; octave: number; degree: number }>();
-    for (let semi = 0; semi <= 24; semi++) {
-      const degree = instrument.pitched ? keyDegree(semi, scale) : 0;
-      const pitch = describePitch(degree, scale, rootHz);
-      out.set(semi, { name: pitch.name, octave: pitch.octave, degree });
+  const surfaceRef = useRef<HTMLDivElement>(null);
+  const hints = useMemo(() => {
+    const out = new Map<number, string>();
+    if (!instrument.pitched) return out;
+    for (const note of notes) {
+      const hint = hintFor(note.degree, focus, scale, notes);
+      if (hint) out.set(note.degree, hint);
     }
     return out;
-  }, [instrument.pitched, rootHz, scale]);
+  }, [focus, instrument.pitched, notes, scale]);
+
+  useEffect(() => {
+    surfaceRef.current?.querySelector('.is-hint')?.scrollIntoView({ inline: 'center', block: 'nearest' });
+  }, [focus, instrument.id]);
 
   const choose = (id: string) => {
     if (id === instrument.id) return;
@@ -388,82 +403,22 @@ export function InstrumentsPage({ bpm, snap, scale, rootHz, takes, onPlay, onSav
         </header>
 
         <div className="instrument-player">
-          {instrument.pitched ? (
-            <div className="piano" onContextMenu={ignoreMenu} aria-label="Keyboard" role="group">
-              <div className="piano-whites">
-                {WHITES.map((semi) => {
-                  const label = labels.get(semi)!;
-                  const hint = KEY_HINT.get(semi);
-                  return (
-                    <div
-                      key={semi}
-                      role="button"
-                      aria-label={`${label.name}${label.octave}${hint ? `, key ${hint}` : ''}`}
-                      aria-pressed={play.held.has(semi)}
-                      title={`${label.name}${label.octave} · degree ${label.degree}${hint ? ` · ${hint}` : ''}`}
-                      className={`piano-white${play.held.has(semi) ? ' is-down' : ''}`}
-                      onPointerDown={(event) => play.onPointerDown(event, `s:${semi}`, label.degree)}
-                      onPointerUp={play.onPointerEnd}
-                      onPointerCancel={play.onPointerEnd}
-                      onLostPointerCapture={play.onPointerEnd}
-                    >
-                      <span className="piano-note">
-                        {label.name}
-                        <sub>{label.octave}</sub>
-                      </span>
-                      {hint && <span className="piano-hint">{hint}</span>}
-                    </div>
-                  );
-                })}
-              </div>
-              {BLACKS.map(({ semi, left }) => {
-                const label = labels.get(semi)!;
-                const hint = KEY_HINT.get(semi);
-                return (
-                  <div
-                    key={semi}
-                    role="button"
-                    aria-label={`${label.name}${label.octave}${hint ? `, key ${hint}` : ''}`}
-                    aria-pressed={play.held.has(semi)}
-                    title={`${label.name}${label.octave} · degree ${label.degree}${hint ? ` · ${hint}` : ''}`}
-                    className={`piano-black${play.held.has(semi) ? ' is-down' : ''}`}
-                    style={{ left: `${left}%` }}
-                    onPointerDown={(event) => play.onPointerDown(event, `s:${semi}`, label.degree)}
-                    onPointerUp={play.onPointerEnd}
-                    onPointerCancel={play.onPointerEnd}
-                    onLostPointerCapture={play.onPointerEnd}
-                  >
-                    <span className="piano-note">
-                      {label.name}
-                      <sub>{label.octave}</sub>
-                    </span>
-                    {hint && <span className="piano-hint">{hint}</span>}
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <div
-              role="button"
-              className={`drum-pad${play.padHeld ? ' is-down' : ''}`}
-              style={swatch}
-              aria-label={`Play ${instrument.name}`}
-              aria-pressed={play.padHeld}
+          <div ref={surfaceRef} className="instrument-surface" style={swatch}>
+            <InstrumentSurface
+              playing={playing}
+              scale={scale}
+              name={instrument.name}
+              notes={notes}
+              held={play.held}
+              hints={hints}
+              padHeld={play.padHeld}
+              onPointerDown={play.onPointerDown}
+              onPointerEnd={play.onPointerEnd}
               onContextMenu={ignoreMenu}
-              onPointerDown={(event) => play.onPointerDown(event, `p:${event.pointerId}`, 0)}
-              onPointerUp={play.onPointerEnd}
-              onPointerCancel={play.onPointerEnd}
-              onLostPointerCapture={play.onPointerEnd}
-            >
-              {instrument.name}
-            </div>
-          )}
+            />
+          </div>
 
-          <p className="muted instrument-keys">
-            {instrument.pitched
-              ? 'A S D F G H J K play the white keys, W E T Y U the black ones. Pointer down sounds, pointer up ends the note.'
-              : 'Tap the pad, or play it from A S D F G H J K and W E T Y U.'}
-          </p>
+          <p className="muted instrument-keys">{playingHint(playing)}</p>
 
           <div className="row">
             <button type="button" className={`rec${play.recording ? ' is-on' : ''}`} aria-pressed={play.recording} onClick={play.toggle}>

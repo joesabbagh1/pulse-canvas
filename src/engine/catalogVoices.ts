@@ -1,28 +1,7 @@
 import type { Instrument } from './instruments';
+import { NO_GATE, ONCE_GATE, type NoteGate } from './holds';
+import { Pool } from './pool';
 import * as Tone from 'tone';
-
-// A monophonic synth throws if it is started twice at the same instant, so
-// notes rotate through a few copies and each copy only takes a later time.
-class Pool<T> {
-  private last: number[];
-  private next = 0;
-
-  constructor(readonly voices: T[]) {
-    this.last = voices.map(() => -Infinity);
-  }
-
-  take(time: number): T | null {
-    for (let i = 0; i < this.voices.length; i++) {
-      const k = (this.next + i) % this.voices.length;
-      if (time > this.last[k] + 0.001) {
-        this.last[k] = time;
-        this.next = k + 1;
-        return this.voices[k];
-      }
-    }
-    return null;
-  }
-}
 
 type SustainInstrument = Instrument & { voice: 'sustain' };
 type PluckInstrument = Instrument & {
@@ -408,6 +387,37 @@ export class CatalogVoices {
     }
   }
 
+  /**
+   * Start a note and keep it until `release`. Drums play their full strike.
+   * A mallet rings for its decay, and letting go early damps it.
+   */
+  attack(inst: Instrument, hz: number, time: number, velocity: number): NoteGate {
+    if (velocity <= 0) return NO_GATE;
+    switch (inst.voice) {
+      case 'sustain':
+        return this.attackSustain(inst, hz, time, velocity, true);
+      case 'pluck':
+        return 'dampening' in inst ? this.attackPluck(inst, hz, time, velocity) : NO_GATE;
+      case 'bow':
+        return this.attackBow(inst, hz, time, velocity, true);
+      case 'blow':
+        return this.attackBlow(inst, hz, time, velocity, true);
+      case 'mallet':
+        return this.attackMallet(inst, hz, time, velocity);
+      case 'drum':
+        this.playDrum(inst, hz, time, velocity, null);
+        return ONCE_GATE;
+      case 'tone':
+      case 'bass':
+      case 'jawharp':
+      case 'khuur':
+      case 'kick':
+      case 'snare':
+      case 'hat':
+        return NO_GATE;
+    }
+  }
+
   silence(time: number) {
     if (this.sustain) for (const voice of this.sustain.voices) voice.synth.triggerRelease(time);
     if (this.pluck) for (const voice of this.pluck.voices) voice.triggerRelease(time);
@@ -420,6 +430,12 @@ export class CatalogVoices {
     }
     if (this.mallet) for (const voice of this.mallet.voices) voice.triggerRelease(time);
     if (this.drum) for (const voice of this.drum.voices) voice.release(time);
+    this.sustain?.releaseAll(time);
+    this.pluck?.releaseAll(time);
+    this.bow?.releaseAll(time);
+    this.blow?.releaseAll(time);
+    this.mallet?.releaseAll(time);
+    this.drum?.releaseAll(time);
   }
 
   dispose() {
@@ -599,6 +615,140 @@ export class CatalogVoices {
     atTime(voice.volume, level(inst.gain, vel), time);
     const duration = length ?? Math.min(1.2, Math.max(0.08, inst.decay));
     voice.triggerAttackRelease(hz, duration, time, vel);
+  }
+
+  private attackSustain(inst: SustainInstrument, hz: number, time: number, velocity: number, withFifth: boolean): NoteGate {
+    if (!(velocity > 0)) return NO_GATE;
+    const held = this.sustainPool().hold(time);
+    if (!held) return NO_GATE;
+    const { voice } = held;
+    const vel = Math.min(1, velocity);
+    const osc = voice.synth.oscillator;
+    osc.type = inst.wave;
+    if (inst.wave === 'fatsawtooth') {
+      osc.count = 2;
+      osc.spread = inst.spread ?? 15;
+    }
+    voice.synth.envelope.attack = inst.attack;
+    voice.synth.envelope.decay = inst.decay;
+    voice.synth.envelope.sustain = inst.sustain;
+    voice.synth.envelope.release = inst.release;
+    voice.cutoff(inst.cutoff, time);
+    atTime(voice.synth.volume, level(inst.gain, vel), time);
+    voice.synth.triggerAttack(hz, time, vel);
+    const below = hz / 1.5;
+    const fifth = withFifth && inst.fifth && below >= 40 ? this.attackSustain(inst, below, time, vel * 0.55, false) : NO_GATE;
+    return {
+      release: (at) => {
+        voice.synth.triggerRelease(at);
+        this.sustain?.free(held.index, at);
+        fifth.release(at);
+      },
+    };
+  }
+
+  private attackPluck(inst: PluckInstrument, hz: number, time: number, velocity: number): NoteGate {
+    if (!(velocity > 0)) return NO_GATE;
+    const held = this.pluckPool().hold(time);
+    if (!held) return NO_GATE;
+    const { voice } = held;
+    voice.dampening = inst.dampening;
+    voice.resonance = inst.resonance;
+    voice.attackNoise = inst.attackNoise;
+    voice.release = inst.release;
+    atTime(voice.volume, level(inst.gain, velocity), time);
+    voice.triggerAttack(hz, time);
+    return {
+      release: (at) => {
+        voice.triggerRelease(at);
+        this.pluck?.free(held.index, at);
+      },
+    };
+  }
+
+  private attackBow(inst: BowInstrument, hz: number, time: number, velocity: number, withDrone: boolean): NoteGate {
+    if (!(velocity > 0)) return NO_GATE;
+    const held = this.bowPool().hold(time);
+    if (!held) return NO_GATE;
+    const { voice } = held;
+    const vel = Math.min(1, velocity);
+    voice.synth.envelope.attack = inst.attack;
+    voice.vibrato(inst.vibrato);
+    voice.cutoff(inst.cutoff, time);
+    atTime(voice.synth.volume, level(inst.gain, vel), time);
+    voice.synth.triggerAttack(hz, time, vel);
+    const below = hz / 1.5;
+    const drone = withDrone && inst.drone && below >= 45 ? this.attackBow(inst, below, time, vel * 0.5, false) : NO_GATE;
+    return {
+      release: (at) => {
+        voice.synth.triggerRelease(at);
+        this.bow?.free(held.index, at);
+        drone.release(at);
+      },
+    };
+  }
+
+  private attackBlow(inst: BlowInstrument, hz: number, time: number, velocity: number, withDrone: boolean): NoteGate {
+    if (!(velocity > 0)) return NO_GATE;
+    const held = this.blowPool().hold(time);
+    if (!held) return NO_GATE;
+    const { voice } = held;
+    const vel = Math.min(1, velocity);
+    voice.synth.oscillator.type = inst.wave;
+    voice.synth.envelope.attack = inst.attack;
+    voice.synth.envelope.decay = 0.12;
+    voice.synth.envelope.sustain = inst.sustain;
+    voice.synth.envelope.release = inst.release;
+    voice.formant(hz, inst.q, time);
+    voice.vibrato(inst.vibrato);
+    atTime(voice.synth.volume, level(inst.gain, vel), time);
+    voice.synth.triggerAttack(hz, time, vel);
+    const puff = 0.08 + inst.breath * 0.2;
+    voice.breath.envelope.attack = 0.004;
+    voice.breath.envelope.decay = puff;
+    voice.breath.envelope.sustain = 0;
+    voice.breath.envelope.release = Math.min(0.04, Math.max(0.01, puff));
+    atTime(voice.breath.volume, level(inst.gain, vel) - 18 + inst.breath * 6, time);
+    voice.breath.triggerAttackRelease(puff, time, vel);
+    const below = hz / 1.5;
+    const drone = withDrone && inst.drone && below >= 45 ? this.attackBlow(inst, below, time, vel * 0.45, false) : NO_GATE;
+    return {
+      release: (at) => {
+        voice.synth.triggerRelease(at);
+        voice.breath.triggerRelease(at);
+        this.blow?.free(held.index, at);
+        drone.release(at);
+      },
+    };
+  }
+
+  private attackMallet(inst: MalletInstrument, hz: number, time: number, velocity: number): NoteGate {
+    if (!(velocity > 0)) return NO_GATE;
+    const held = this.malletPool().hold(time);
+    if (!held) return NO_GATE;
+    const { voice } = held;
+    const vel = Math.min(1, velocity);
+    const release = Math.min(0.2, inst.decay);
+    voice.oscillator.type = 'sine';
+    voice.modulation.type = 'sine';
+    atTime(voice.harmonicity, inst.ratio, time);
+    atTime(voice.modulationIndex, inst.index, time);
+    voice.envelope.attack = 0.001;
+    voice.envelope.decay = inst.decay;
+    voice.envelope.sustain = 0;
+    voice.envelope.release = release;
+    voice.modulationEnvelope.attack = 0.001;
+    voice.modulationEnvelope.decay = Math.max(0.005, inst.decay * 0.6);
+    voice.modulationEnvelope.sustain = 0;
+    voice.modulationEnvelope.release = Math.min(0.1, release);
+    atTime(voice.volume, level(inst.gain, vel), time);
+    voice.triggerAttack(hz, time, vel);
+    return {
+      release: (at) => {
+        voice.triggerRelease(at);
+        this.mallet?.free(held.index, at);
+      },
+    };
   }
 
   private playDrum(inst: DrumInstrument, hz: number, time: number, velocity: number, length: number | null) {

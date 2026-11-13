@@ -747,12 +747,12 @@ function Studio() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
 
-  const playInstrument = useCallback(
-    (kind: string, degree: number) => {
-      void engine.audition({ id: 'instrument', x: 0, y: 0, kind: kind as BlockKind, degree, every: 0, scale, rootHz });
-    },
+  const attackInstrument = useCallback(
+    (kind: string, degree: number, velocity: number) =>
+      engine.attack({ id: 'instrument', x: 0, y: 0, kind: kind as BlockKind, degree, every: 0, scale, rootHz }, velocity),
     [engine, scale, rootHz],
   );
+  const releaseInstrument = useCallback((id: number) => engine.release(id), [engine]);
 
   const saveTake = useCallback((take: Take) => {
     setTakes((current) => [...current, take].slice(-MAX_TAKES));
@@ -971,7 +971,8 @@ function Studio() {
               scale={scale}
               rootHz={rootHz}
               takes={takes}
-              onPlay={playInstrument}
+              onAttack={attackInstrument}
+              onRelease={releaseInstrument}
               onSaveTake={saveTake}
               onPlace={placeTake}
             />

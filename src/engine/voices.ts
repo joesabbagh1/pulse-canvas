@@ -1,33 +1,12 @@
 import * as Tone from 'tone';
 import { CatalogVoices } from './catalogVoices';
+import { NO_GATE, ONCE_GATE, type NoteGate } from './holds';
 import { instrumentById } from './instruments';
+import { Pool } from './pool';
 import { motionSum, movedTone, type InstrumentProgram, type MotionCurve, type Partials } from './wave';
 import type { BeatClock } from './clock';
 import { PLAIN, type GraphBlock, type NoteShape } from './scheduler';
 import { ROOT_HZ, degreeToHz } from './tuning';
-
-// Tone.js throws if a one-shot voice is started twice at the same instant, so
-// drum hits rotate through a few copies and each copy only takes later times.
-class Pool<T> {
-  private last: number[];
-  private next = 0;
-
-  constructor(readonly voices: T[]) {
-    this.last = voices.map(() => -Infinity);
-  }
-
-  take(time: number): T | null {
-    for (let i = 0; i < this.voices.length; i++) {
-      const k = (this.next + i) % this.voices.length;
-      if (time > this.last[k] + 0.001) {
-        this.last[k] = time;
-        this.next = k + 1;
-        return this.voices[k];
-      }
-    }
-    return null;
-  }
-}
 
 // A loop that keeps transposing climbs out of hearing; those notes are skipped
 // rather than sent to the synths.
@@ -139,6 +118,21 @@ class JawHarpVoice {
     this.buzz.triggerAttackRelease(f0, dur, time, velocity);
     // The lamella starts sharp and drops, which is the twang. The mouth stays on the note.
     this.buzz.frequency.cancelScheduledValues(time);
+    this.buzz.frequency.setValueAtTime(f0 * 1.08, time);
+    this.buzz.frequency.exponentialRampToValueAtTime(f0, time + 0.045);
+  }
+
+  /** The buzz holds until `release`. The click is still a short strike. */
+  begin(noteHz: number, time: number, velocity: number) {
+    const f0 = jawTongueHz(noteHz);
+    const harmonic = Math.max(1, noteHz / f0);
+    this.tongue.volume.setValueAtTime(-12 + Tone.gainToDb(Math.min(3.2, Math.sqrt(harmonic))), time);
+    this.mouth.frequency.cancelScheduledValues(time);
+    this.mouth.frequency.setValueAtTime(Math.max(30, noteHz * 0.72), time);
+    this.mouth.frequency.exponentialRampToValueAtTime(Math.max(30, noteHz), time + 0.03);
+    this.tongue.triggerAttack(f0, time, velocity);
+    this.click.triggerAttackRelease(0.02, time, velocity);
+    this.buzz.triggerAttack(f0, time, velocity);
     this.buzz.frequency.setValueAtTime(f0 * 1.08, time);
     this.buzz.frequency.exponentialRampToValueAtTime(f0, time + 0.045);
   }
@@ -459,6 +453,118 @@ export class Voices {
     }
   }
 
+  /**
+   * A live note. It sounds until the returned gate is released. Drums, hats,
+   * and other strikes play out and are not choked by letting go.
+   */
+  attack(block: GraphBlock, time: number, secondsPerBeat: number, velocity: number, sample?: Tone.ToneAudioBuffer): NoteGate {
+    const hz = degreeToHz(block.degree, block.scale, block.rootHz);
+    if (!(velocity > 0)) return NO_GATE;
+    try {
+      switch (block.kind) {
+        case 'tone':
+          return this.attackTone(hz, time, velocity, sample);
+        case 'pluck':
+          return this.attackPluck(hz, time, velocity);
+        case 'bass':
+          return this.attackBass(hz, time, velocity);
+        case 'jawharp':
+          return this.attackJaw(hz, time, velocity);
+        case 'khuur':
+          return this.attackKhuur(hz, time, velocity);
+        case 'kick':
+        case 'snare':
+        case 'hat':
+          this.play(block, time, secondsPerBeat, sample, { velocity, length: null });
+          return ONCE_GATE;
+        case 'start':
+          return NO_GATE;
+        default: {
+          const inst = instrumentById(block.kind);
+          if (!inst) return NO_GATE;
+          if (!inst.pitched || inst.voice === 'drum') {
+            this.play(block, time, secondsPerBeat, sample, { velocity, length: null });
+            return ONCE_GATE;
+          }
+          if (!audible(hz)) return NO_GATE;
+          const cycle = this.attackCycle(block.kind, hz, time, velocity);
+          if (cycle) return cycle;
+          return this.catalog.attack(inst, hz, time, velocity);
+        }
+      }
+    } catch (err) {
+      console.warn('Voice failed to attack', err);
+      return NO_GATE;
+    }
+  }
+
+  private attackTone(hz: number, time: number, velocity: number, sample?: Tone.ToneAudioBuffer): NoteGate {
+    if (!audible(hz)) return NO_GATE;
+    const vel = 0.8 * velocity;
+    if (sample) return this.attackSample(sample, hz / ROOT_HZ, time, velocity);
+    const cycle = this.attackCycle('tone', hz, time, vel);
+    if (cycle) return cycle;
+    if (this.drawnWave) return this.attackDrawn(hz, time, vel);
+    this.tone.triggerAttack(hz, time, vel);
+    return { release: (at) => this.tone.triggerRelease(hz, at) };
+  }
+
+  private attackPluck(hz: number, time: number, velocity: number): NoteGate {
+    if (!audible(hz)) return NO_GATE;
+    const cycle = this.attackCycle('pluck', hz, time, velocity);
+    if (cycle) return cycle;
+    const held = this.plucks.hold(time);
+    if (!held) return NO_GATE;
+    held.voice.volume.setValueAtTime(-8 + Tone.gainToDb(Math.min(1, velocity)), time);
+    held.voice.triggerAttack(hz, time);
+    return {
+      release: (at) => {
+        held.voice.triggerRelease(at);
+        this.plucks.free(held.index, at);
+      },
+    };
+  }
+
+  private attackBass(hz: number, time: number, velocity: number): NoteGate {
+    if (!audible(hz)) return NO_GATE;
+    const cycle = this.attackCycle('bass', hz, time, velocity);
+    if (cycle) return cycle;
+    this.bass.triggerAttack(hz, time, velocity);
+    return { release: (at) => this.bass.triggerRelease(hz, at) };
+  }
+
+  private attackJaw(hz: number, time: number, velocity: number): NoteGate {
+    if (!audible(hz)) return NO_GATE;
+    const cycle = this.attackCycle('jawharp', hz, time, velocity);
+    if (cycle) return cycle;
+    const held = this.jawharps.hold(time);
+    if (!held) return NO_GATE;
+    held.voice.begin(hz, time, velocity);
+    return {
+      release: (at) => {
+        held.voice.release(at);
+        this.jawharps.free(held.index, at);
+      },
+    };
+  }
+
+  private attackKhuur(hz: number, time: number, velocity: number): NoteGate {
+    if (!audible(hz)) return NO_GATE;
+    const cycle = this.attackCycle('khuur', hz, time, velocity);
+    if (cycle) return cycle;
+    this.khuur.triggerAttack(hz, time, velocity);
+    const drone = khuurDroneHz(hz);
+    const withDrone = audible(drone);
+    if (withDrone) this.khuurDrone.triggerAttack(drone, time, velocity);
+    this.bows.take(time)?.hit(time, velocity);
+    return {
+      release: (at) => {
+        this.khuur.triggerRelease(hz, at);
+        if (withDrone) this.khuurDrone.triggerRelease(drone, at);
+      },
+    };
+  }
+
   private openFilter() {
     const filter = new Tone.Filter({ type: 'lowpass', frequency: 18000, rolloff: -12 }).connect(this.output);
     this.ownedFilters.push(filter);
@@ -503,6 +609,42 @@ export class Voices {
       shade.notes = shade.notes.filter((n) => n !== note);
     };
     return true;
+  }
+
+  /** A cycle that holds until release. Null when this instrument has no cycle. */
+  private attackCycle(id: string, hz: number, time: number, velocity: number): NoteGate | null {
+    const shade = this.shades.get(id) ?? (this.programs.has(id) ? this.shade(id) : undefined);
+    const wave = shade?.wave;
+    if (!shade || !wave) return null;
+    if (shade.notes.length >= MAX_DRAWN_NOTES) return NO_GATE;
+    const env = new Tone.AmplitudeEnvelope({ attack: 0.008, decay: 0.22, sustain: 0.5, release: 0.35 }).connect(shade.input);
+    const osc = Tone.getContext().rawContext.createOscillator();
+    osc.setPeriodicWave(wave);
+    osc.frequency.setValueAtTime(hz, time);
+    osc.connect(audioInput(env));
+    env.triggerAttack(time, velocity);
+    osc.start(time);
+    const note: DrawnNote = { osc, env, gone: false };
+    shade.notes.push(note);
+    const finish = () => {
+      if (note.gone) return;
+      note.gone = true;
+      osc.disconnect();
+      env.dispose();
+      shade.notes = shade.notes.filter((n) => n !== note);
+    };
+    osc.onended = finish;
+    return {
+      release: (at) => {
+        if (note.gone) return;
+        env.triggerRelease(at);
+        try {
+          osc.stop(at + 0.4);
+        } catch {
+          finish();
+        }
+      },
+    };
   }
 
   private scheduleShade(shade: Shade, motions: MotionCurve[], baseTone: number, clock: BeatClock | null, now: number, until: number, park: boolean) {
@@ -559,6 +701,64 @@ export class Voices {
     if (this.sampleNotes.length > MAX_SAMPLE_NOTES) this.sampleNotes[0].stop(time);
   }
 
+  private attackSample(sample: Tone.ToneAudioBuffer, rate: number, time: number, gain: number): NoteGate {
+    const note = new Tone.ToneBufferSource({ url: sample, playbackRate: rate, fadeOut: 0.02 }).connect(this.toneFilter);
+    let gone = false;
+    const finish = () => {
+      if (gone) return;
+      gone = true;
+      this.sampleNotes = this.sampleNotes.filter((n) => n !== note);
+      note.dispose();
+    };
+    note.onended = finish;
+    note.start(time, 0, undefined, gain);
+    this.sampleNotes.push(note);
+    if (this.sampleNotes.length > MAX_SAMPLE_NOTES) this.sampleNotes[0].stop(time);
+    return {
+      release: (at) => {
+        if (gone) return;
+        try {
+          note.stop(at);
+        } catch {
+          finish();
+        }
+      },
+    };
+  }
+
+  private attackDrawn(hz: number, time: number, velocity: number): NoteGate {
+    const wave = this.drawnWave;
+    if (!wave || this.drawnNotes.length >= MAX_DRAWN_NOTES) return NO_GATE;
+    const env = new Tone.AmplitudeEnvelope({ attack: 0.004, decay: 0.3, sustain: 0.1, release: 0.8 }).connect(this.drawnOut);
+    const osc = Tone.getContext().rawContext.createOscillator();
+    osc.setPeriodicWave(wave);
+    osc.frequency.setValueAtTime(hz, time);
+    osc.connect(audioInput(env));
+    env.triggerAttack(time, velocity);
+    osc.start(time);
+    const note = { osc, env, gone: false };
+    this.drawnNotes.push(note);
+    const finish = () => {
+      if (note.gone) return;
+      note.gone = true;
+      osc.disconnect();
+      env.dispose();
+      this.drawnNotes = this.drawnNotes.filter((n) => n !== note);
+    };
+    osc.onended = finish;
+    return {
+      release: (at) => {
+        if (note.gone) return;
+        env.triggerRelease(at);
+        try {
+          osc.stop(at + 0.85);
+        } catch {
+          finish();
+        }
+      },
+    };
+  }
+
   /** The same envelope as the triangle synth, so a cycle changes the timbre and not the shape of the note. */
   private playDrawn(hz: number, time: number, velocity: number, length: number) {
     const wave = this.drawnWave;
@@ -587,7 +787,9 @@ export class Voices {
     this.tone.releaseAll(time);
     this.bass.releaseAll(time);
     for (const pluck of this.plucks.voices) pluck.triggerRelease(time);
+    this.plucks.releaseAll(time);
     for (const jaw of this.jawharps.voices) jaw.release(time);
+    this.jawharps.releaseAll(time);
     this.khuur.releaseAll(time);
     this.khuurDrone.releaseAll(time);
     this.catalog.silence(time);

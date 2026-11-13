@@ -1,6 +1,7 @@
 import * as Tone from 'tone';
 import { BeatClock } from './clock';
 import { grooveNote } from './groove';
+import { HoldBook } from './holds';
 import { Mixer, type BusSettings } from './mixer';
 import { WavRecorder } from './recorder';
 import { loadSampleBytes } from './samples';
@@ -36,6 +37,7 @@ export class Engine {
   private starting = false;
   private waveProgram = new Map<string, BusWaves>();
   private waveKey = '';
+  private holds = new HoldBook();
 
   get playing() {
     return this.scheduler.playing;
@@ -70,6 +72,7 @@ export class Engine {
     try {
       const mixer = await this.ensureAudio();
       mixer.silence(this.audioNow());
+      this.holds.dropAll();
       this.clock.reset(this.audioNow() + 0.1);
       this.scheduler.start(0);
       this.interval = Tone.getContext().setInterval(() => this.tick(), TICK);
@@ -86,6 +89,7 @@ export class Engine {
     this.flashes = [];
     const now = this.audioNow();
     this.mixer?.silence(now);
+    this.holds.dropAll();
     // Leave the filter where the motion starts, so the next play matches the dot on the left.
     this.mixer?.park(this.buses, now);
   }
@@ -94,6 +98,31 @@ export class Engine {
   async audition(block: GraphBlock) {
     const mixer = await this.ensureAudio();
     mixer.play(block, this.audioNow() + 0.01, this.clock.secondsPerBeat);
+  }
+
+  /**
+   * Start a live note and return its handle. The handle exists before the
+   * audio context is ready, so `release` can win the race and the note will
+   * not be left sounding.
+   */
+  attack(block: GraphBlock, velocity = 1): number {
+    const id = this.holds.open();
+    void this.ensureAudio()
+      .then((mixer) => {
+        const time = this.audioNow() + 0.01;
+        const gate = mixer.attack(block, time, this.clock.secondsPerBeat, velocity);
+        this.holds.start(id, this.audioNow(), gate);
+      })
+      .catch((err) => {
+        console.warn('Live note failed to start', err);
+        this.holds.release(id, this.audioNow());
+      });
+    return id;
+  }
+
+  /** End the live note started by `attack`. */
+  release(id: number) {
+    this.holds.release(id, this.audioNow());
   }
 
   setGraph(blocks: GraphBlock[], links: GraphLink[]) {

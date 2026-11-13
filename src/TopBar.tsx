@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { Menu, type MenuItem } from './ui/Menu';
 import { routeHref, type Route } from './ui/route';
 
@@ -38,6 +39,16 @@ interface Props {
 // with the piece (undo, share, the File menu).
 export function TopBar(props: Props) {
   const { route, playing, recording, recordedSeconds, bpm, snap, canUndo, canRedo, fileMenu } = props;
+  const tabs = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const nav = tabs.current;
+    const active = nav?.querySelector('.is-active');
+    if (!nav || !(active instanceof HTMLElement)) return;
+    const navBox = nav.getBoundingClientRect();
+    const box = active.getBoundingClientRect();
+    if (box.right > navBox.right - 4) nav.scrollLeft += box.right - navBox.right + 12;
+    else if (box.left < navBox.left + 4) nav.scrollLeft -= navBox.left - box.left + 12;
+  }, [route]);
   return (
     <header className="app-bar">
       <div className="app-bar-group">
@@ -45,7 +56,7 @@ export function TopBar(props: Props) {
           <span className="brand-index">00</span>
           <span className="brand-name">Pulse</span>
         </a>
-        <nav className="tabs" aria-label="Pages">
+        <nav className="tabs" aria-label="Pages" ref={tabs}>
           {TABS.map((t, index) => (
             <a
               key={t.route}

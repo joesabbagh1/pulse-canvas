@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { CODE_REFERENCE } from './CodeField';
+import { MAX_TAKE_BEATS, MAX_TAKE_NOTES } from './takes';
 import { MOD } from './TopBar';
 import { routeHref } from './ui/route';
 
@@ -70,8 +71,9 @@ const SECTIONS: Section[] = [
             <td>Sounds</td>
             <td>
               <b>Instruments</b> opens the families: keyboards, bowed and plucked strings, winds, brass, percussion,
-              voice, and synths. <b>Tone</b> is the sustained synth. A drawn cycle or a region's sample replaces it; every
-              other instrument keeps its own voice.
+              voice, and synths. Each one has its own playing surface, covering every scale note in its range, and a
+              note holds until the key comes up. <b>Tone</b> is the sustained synth. A drawn cycle or a region's sample
+              replaces it; every other instrument keeps its own voice.
             </td>
           </tr>
           <tr>
@@ -96,6 +98,34 @@ const SECTIONS: Section[] = [
           </tr>
         </tbody>
       </table>
+    ),
+  },
+  {
+    id: 'instruments',
+    title: 'Instruments',
+    body: (
+      <>
+        <p>
+          <b>Instruments</b> is where you play. The list on the left is the eight families. The surface on the right is
+          that instrument: a keyboard, a fingerboard, a fretboard, strings, pipes, a wind or brass body, bars, a grid, a
+          staff, or the instrument itself when it has one sound.
+        </p>
+        <p>
+          The notes are the scale degrees that fall inside the instrument's range, at the piece's key. A violin in major
+          runs from G3 to E7. A tuba sits low. A pentatonic harp has fewer strings than a major one. A maqam note that
+          falls between the piano keys is its own key, hole, or fret.
+        </p>
+        <p>
+          Pointer down starts the note and pointer up ends it. While the key is held, a sustained instrument keeps
+          sounding, and a pluck rings until you let go. A mallet rings for its decay. A drum or an effect plays its whole
+          hit, so a short tap does not cut it off. Pen pressure is the loudness.
+        </p>
+        <p>
+          <Keys k="A S D F G H J K W E T Y U" /> play the scale notes of the octave in view, in order. <Keys k="Z" /> and{' '}
+          <Keys k="X" /> move that octave. <b>Record</b> writes the performance as a take: up to {MAX_TAKE_NOTES} notes or {MAX_TAKE_BEATS} beats,
+          snapped to the grid. <b>Use on canvas</b> lays the take out as linked blocks.
+        </p>
+      </>
     ),
   },
   {
@@ -220,6 +250,9 @@ const SECTIONS: Section[] = [
             ['?', 'This guide'],
             ['Esc', 'Back to the canvas'],
             ['A–Z, 0–9', 'Performance keys you have given to start blocks and regions'],
+            ['A S D F G H J K', 'On Instruments, the scale notes of the octave in view'],
+            ['W E T Y U', 'On Instruments, the rest of that octave'],
+            ['Z / X', 'On Instruments, the octave below or above'],
           ].map(([k, does]) => (
             <tr key={k}>
               <td>
