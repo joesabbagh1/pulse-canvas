@@ -29,6 +29,7 @@ interface Props {
   onUndo: () => void;
   onRedo: () => void;
   onShare: () => void;
+  onClear: () => void;
 }
 
 // One bar across the top, in three groups: where you are (the pages), what's
@@ -93,6 +94,9 @@ export function TopBar(props: Props) {
         </button>
         <button className="icon" onClick={props.onRedo} disabled={!canRedo} title={`Redo (${MOD}⇧Z)`} aria-label="Redo">
           ↷
+        </button>
+        <button className="danger" onClick={props.onClear} title={`Clear the canvas (${MOD}Z brings it back)`}>
+          Clear
         </button>
         <button className="share" onClick={props.onShare} title="Copy a link that opens a copy of this piece">
           Share

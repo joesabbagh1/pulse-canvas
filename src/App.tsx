@@ -672,6 +672,7 @@ function Studio() {
           onUndo={undo}
           onRedo={redo}
           onShare={() => void share()}
+          onClear={() => void newPiece()}
         />
         <input
           ref={openFileRef}
