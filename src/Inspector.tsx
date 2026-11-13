@@ -4,6 +4,7 @@ import { KeyField } from './KeyField';
 import { GRID, formatBeats, parseLength } from './engine/geometry';
 import { hasPitch, type BlockKind } from './engine/scheduler';
 import { describePitch, type Scale, type Tuning } from './engine/tuning';
+import type { WaveRole } from './engine/wave';
 import type { BlockData, BlockNode, RegionData, RegionNode } from './piece';
 import { RegionInspector } from './RegionInspector';
 import { blockColor, useSettings } from './settings';
@@ -13,6 +14,8 @@ const KINDS: { kind: BlockKind; label: string }[] = [
   { kind: 'tone', label: 'Tone' },
   { kind: 'pluck', label: 'Pluck' },
   { kind: 'bass', label: 'Bass' },
+  { kind: 'jawharp', label: 'Jaw harp' },
+  { kind: 'khuur', label: 'Khuur' },
   { kind: 'kick', label: 'Kick' },
   { kind: 'snare', label: 'Snare' },
   { kind: 'hat', label: 'Hat' },
@@ -26,6 +29,8 @@ interface Props {
   region?: RegionNode;
   /** `minBeats` is the straight line between its blocks: as short as it can get. */
   link?: { beats: number; minBeats: number; bends: number; code: string };
+  /** A selected drawing. `place` is the region it sounds in; null is the canvas. */
+  wave?: { role: WaveRole; beats: number; place: string | null; heard: boolean; sampled: boolean; points: number };
   playing: boolean;
   onChange: (id: string, patch: Partial<BlockData>) => void;
   onLinkCode: (code: string) => void;
@@ -39,13 +44,54 @@ interface Props {
   onFire: (id: string) => void;
   onStraighten: () => void;
   onDelete: () => void;
+  onWaveRole: (role: WaveRole) => void;
 }
 
 export function Inspector(props: Props) {
-  const { node, nodeTuning, region, link, playing, onChange, onLinkCode, onLinkLength, onRegionChange, onImportScale, onRemoveScale, onLoadSample } =
+  const { node, nodeTuning, region, link, wave, playing, onChange, onLinkCode, onLinkLength, onRegionChange, onImportScale, onRemoveScale, onLoadSample } =
     props;
-  const { onFire, onStraighten, onDelete, takenKeys } = props;
+  const { onFire, onStraighten, onDelete, onWaveRole, takenKeys } = props;
   const { snap } = useSettings();
+
+  if (wave) {
+    const place = wave.place ?? 'the canvas';
+    return (
+      <div className="inspector">
+        <div className="inspector-title">Wave</div>
+        <div className="segmented">
+          <button className={wave.role === 'cycle' ? 'is-on' : ''} onClick={() => onWaveRole('cycle')}>
+            Cycle
+          </button>
+          <button className={wave.role === 'motion' ? 'is-on' : ''} onClick={() => onWaveRole('motion')}>
+            Cutoff
+          </button>
+        </div>
+        {wave.role === 'cycle' ? (
+          <p className="muted">
+            One period of the tone for {place}. Up from the dashed line is the top of the wave.
+            {wave.sampled && ' This region plays a sample, so the cycle stays quiet until the sample is removed.'}
+            {!wave.heard && !wave.sampled && ' A newer cycle here is the one you hear.'}
+          </p>
+        ) : (
+          <p className="muted">
+            A {formatBeats(wave.beats, snap)}-beat loop on the filter for {place}. The width is the loop, and the height
+            bends the cutoff
+            {wave.place ? " around that region's Tone slider." : ' around fully open. Put it in a region to bend it around the Tone slider.'}{' '}
+            Motions in the same place add together.
+          </p>
+        )}
+        <p className="muted">
+          {wave.points} {wave.points === 1 ? 'point' : 'points'}. Drag one to move it, drag the line to add one, double-click one to remove it.
+          Drag the name to move the whole wave.
+        </p>
+        <div className="row">
+          <button className="danger" onClick={onDelete}>
+            Delete wave
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (region) {
     return (

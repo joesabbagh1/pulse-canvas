@@ -1,13 +1,18 @@
 import * as Tone from 'tone';
+import type { BeatClock } from './clock';
 import type { Groove } from './groove';
 import type { GraphBlock, NoteShape } from './scheduler';
 import { Voices } from './voices';
+import { EMPTY_BUS_WAVES, motionSum, movedTone, type BusWaves, type MotionCurve } from './wave';
 
 // Every region is a bus: its own instruments, through its own effects, into
 // its own channel. Blocks outside every region play on the canvas bus. All
 // buses meet at one limiter.
 //
 //   voices → filter → echo → reverb → channel (level, pan, mute) → limiter
+//
+// A region's cutoff motions own the filter while they exist. The tone slider
+// stays the centre they bend around; without a motion, the slider sets it.
 
 export interface Mix {
   /** Decibels. */
@@ -55,6 +60,13 @@ class Bus {
   private reverb: Tone.Reverb;
   private echo: Tone.FeedbackDelay;
   private filter: Tone.Filter;
+  private motions: MotionCurve[] = [];
+  /** The filter is being driven by motions, so the tone slider must leave it alone. */
+  private automated = false;
+  /** The drawing or the slider changed: the scheduled curve is stale. */
+  private dirty = false;
+  /** Audio time up to which the filter curve is already scheduled. */
+  private scheduledTo = 0;
 
   constructor(output: Tone.InputNode) {
     this.channel = new Tone.Channel().connect(output);
@@ -70,10 +82,64 @@ class Bus {
     this.channel.volume.rampTo(mix.level <= MIN_LEVEL ? -Infinity : mix.level, GLIDE);
     this.channel.pan.rampTo(mix.pan, GLIDE);
     this.channel.mute = mix.mute;
-    this.filter.frequency.rampTo(toneHz(fx.tone), GLIDE);
+    if (!this.automated) this.filter.frequency.rampTo(toneHz(fx.tone), GLIDE);
     this.echo.wet.rampTo(fx.echo, GLIDE);
     this.echo.delayTime.rampTo(fx.echoBeats * secondsPerBeat, GLIDE);
     this.reverb.wet.rampTo(fx.reverb, GLIDE);
+  }
+
+  /** Takes a new cycle and new motions. Marks the filter curve stale. */
+  install(spec: BusWaves) {
+    this.voices.setCycle(spec.cycle);
+    this.motions = spec.motions;
+    this.dirty = true;
+  }
+
+  /**
+   * Schedules the filter through `until`. Motions are read at the beat the
+   * clock gives each moment, so a tempo change is picked up on the next pass.
+   */
+  advance(baseTone: number, clock: BeatClock, now: number, until: number) {
+    if (!this.motions.length) {
+      this.release(now);
+      return;
+    }
+    const hzAt = (time: number) => toneHz(movedTone(baseTone, motionSum(this.motions, clock.beatAt(time))));
+    if (this.dirty || !this.automated || this.scheduledTo < now - 0.05) {
+      this.filter.frequency.cancelScheduledValues(now);
+      this.filter.frequency.setValueAtTime(hzAt(now), now);
+      this.scheduledTo = now;
+      this.automated = true;
+      this.dirty = false;
+    }
+    while (this.scheduledTo < until - 0.001) {
+      const next = Math.min(this.scheduledTo + 0.02, until);
+      this.filter.frequency.linearRampToValueAtTime(hzAt(next), next);
+      this.scheduledTo = next;
+    }
+  }
+
+  /** While stopped, hold the filter where the motion is at beat 0 (the left edge). */
+  park(baseTone: number, now: number) {
+    this.dirty = false;
+    this.scheduledTo = 0;
+    if (!this.motions.length) {
+      this.release(now);
+      return;
+    }
+    this.automated = true;
+    this.filter.frequency.cancelScheduledValues(now);
+    this.filter.frequency.rampTo(toneHz(movedTone(baseTone, motionSum(this.motions, 0))), 0.04);
+  }
+
+  /** Hands the filter back to the tone slider. */
+  private release(now: number) {
+    if (!this.automated && !this.dirty) return;
+    this.automated = false;
+    this.dirty = false;
+    this.scheduledTo = 0;
+    this.filter.frequency.cancelScheduledValues(now);
+    if (this.settings) this.filter.frequency.rampTo(toneHz(this.settings.fx.tone), GLIDE);
   }
 
   dispose() {
@@ -84,6 +150,8 @@ class Bus {
     this.channel.dispose();
   }
 }
+
+const CANVAS = '';
 
 export class Mixer {
   /** Everything heard, after the limiter; recording taps it here. */
@@ -107,6 +175,22 @@ export class Mixer {
       if (!bus) this.buses.set(id, (bus = new Bus(this.output)));
       bus.apply(s, secondsPerBeat);
     }
+  }
+
+  /** The drawn cycles and cutoff motions, keyed by region id. '' is the canvas. */
+  install(program: ReadonlyMap<string, BusWaves>) {
+    this.canvas.install(program.get(CANVAS) ?? EMPTY_BUS_WAVES);
+    for (const [id, bus] of this.buses) bus.install(program.get(id) ?? EMPTY_BUS_WAVES);
+  }
+
+  advance(clock: BeatClock, settings: ReadonlyMap<string, BusSettings>, now: number, until: number) {
+    this.canvas.advance(DEFAULT_FX.tone, clock, now, until);
+    for (const [id, bus] of this.buses) bus.advance(settings.get(id)?.fx.tone ?? DEFAULT_FX.tone, clock, now, until);
+  }
+
+  park(settings: ReadonlyMap<string, BusSettings>, now: number) {
+    this.canvas.park(DEFAULT_FX.tone, now);
+    for (const [id, bus] of this.buses) bus.park(settings.get(id)?.fx.tone ?? DEFAULT_FX.tone, now);
   }
 
   play(block: GraphBlock, time: number, secondsPerBeat: number, shape?: NoteShape) {

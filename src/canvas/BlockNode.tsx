@@ -1,9 +1,18 @@
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { memo, useMemo, type CSSProperties, type ReactNode } from 'react';
+import type { BlockKind } from '../engine/scheduler';
 import { compile, type Target } from '../engine/script';
 import { describePitch } from '../engine/tuning';
 import type { BlockNode } from '../piece';
 import { blockColor, useBlockTuning } from '../settings';
+
+// Short enough to sit under the note name. The dock and the panel use the full names.
+const VOICE_LABEL: Partial<Record<BlockKind, string>> = {
+  pluck: 'pluck',
+  bass: 'bass',
+  jawharp: 'jaw',
+  khuur: 'khuur',
+};
 
 // A block is a disc inside a ring. Drag the disc to move the block; drag the
 // ring to pull out a link. While a link is being dragged, the whole block
@@ -18,8 +27,11 @@ function BlockView({ id, data, selected }: NodeProps<BlockNode>) {
   switch (data.kind) {
     case 'tone':
     case 'pluck':
-    case 'bass': {
+    case 'bass':
+    case 'jawharp':
+    case 'khuur': {
       const pitch = describePitch(data.degree, scale, rootHz);
+      const voice = VOICE_LABEL[data.kind];
       label = (
         <>
           <span className="block-note">
@@ -32,7 +44,7 @@ function BlockView({ id, data, selected }: NodeProps<BlockNode>) {
               {Math.abs(pitch.offset)}¢
             </span>
           ) : (
-            data.kind !== 'tone' && <span className="block-sub">{data.kind}</span>
+            voice && <span className="block-sub">{voice}</span>
           )}
         </>
       );

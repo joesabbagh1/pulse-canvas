@@ -9,11 +9,11 @@ import type { Tuning } from './tuning';
 // This class is pure timing logic in beats. It never touches audio; whoever
 // owns it turns each hit into sound via the onHit callback.
 
-export type BlockKind = 'start' | 'tone' | 'pluck' | 'bass' | 'kick' | 'snare' | 'hat';
+export type BlockKind = 'start' | 'tone' | 'pluck' | 'bass' | 'jawharp' | 'khuur' | 'kick' | 'snare' | 'hat';
 
 /** Plays a scale degree and can step up when a link grows a new block. */
 export function isMelodic(kind: BlockKind) {
-  return kind === 'tone' || kind === 'pluck' || kind === 'bass';
+  return kind === 'tone' || kind === 'pluck' || kind === 'bass' || kind === 'jawharp' || kind === 'khuur';
 }
 
 /** Has a pitch to edit: the melodic voices, and the kick (its pitch is the drum's). */

@@ -41,6 +41,10 @@ export function blockColor(kind: BlockKind, degree: number, scale: Scale): strin
       return pitchColor(degree, scale, 150, 6);
     case 'bass':
       return pitchColor(degree, scale, 40, -16);
+    case 'jawharp':
+      return pitchColor(degree, scale, 200, 0);
+    case 'khuur':
+      return pitchColor(degree, scale, 178, -14);
     case 'kick':
       return '#ff6b4a';
     case 'snare':

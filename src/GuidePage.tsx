@@ -69,8 +69,9 @@ const SECTIONS: Section[] = [
           <tr>
             <td>Sounds</td>
             <td>
-              <b>Tone</b> is the sustained synth, <b>pluck</b> a string, and <b>bass</b> a low voice of its own. <b>Kick</b>,{' '}
-              <b>snare</b> and <b>hat</b> are drums. A region's sample replaces its tones; pluck and bass keep their voices.
+              <b>Tone</b> is the sustained synth, <b>pluck</b> a string, and <b>bass</b> a low voice of its own. <b>Jaw harp</b>{' '}
+              is a plucked metal tongue, and <b>khuur</b> a bowed morin khuur. <b>Kick</b>, <b>snare</b> and <b>hat</b> are
+              drums. A region's sample replaces its tones; the other instruments keep their voices.
             </td>
           </tr>
           <tr>
@@ -112,6 +113,31 @@ const SECTIONS: Section[] = [
           reverb), groove (swing on 8ths or 16ths, and humanize) and sample. Groove moves when notes sound, never when
           pulses arrive, so loops stay in time however much swing is on. A block belongs to the region its centre is in, so dragging it across a border retunes it.
           Adding a region wraps the selected blocks; drag its name tab to move it with everything inside.
+        </p>
+      </>
+    ),
+  },
+  {
+    id: 'waves',
+    title: 'Waves',
+    body: (
+      <>
+        <p>
+          <b>Waves</b>, in the bar at the bottom, is where the synth is drawn. Beats still fire the notes. A wave belongs to
+          the region its middle sits in, and it moves when that region moves.
+        </p>
+        <p>
+          A <b>cycle</b> is one period of the oscillator, and it replaces the plain tone for that region. Up from the
+          dashed line is the top of the wave. <b>Saw</b>, <b>square</b> and <b>sine</b> drop a shape; the <b>pencil</b>{' '}
+          draws one. Drag a point to reshape it, drag the line to add a point, double-click a point to remove it, and drag
+          the name to move the whole drawing. When a region has several cycles, the newest one is the tone. A loaded
+          sample still plays instead.
+        </p>
+        <p>
+          A <b>cutoff</b> motion loops, and its width is the loop in beats — the same pixels-to-beats rule as a link.{' '}
+          <b>Decay</b> drops a two-beat sweep. Height bends the region's Tone filter around the Tone slider, and motions
+          in one region add together. A dot rides the line while it plays. Turn the pencil off (or drag with the middle
+          button) to pan.
         </p>
       </>
     ),

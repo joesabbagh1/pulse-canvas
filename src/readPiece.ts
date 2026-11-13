@@ -4,6 +4,7 @@ import type { SampleRef } from './engine/samples';
 import { MAX_DELAY } from './engine/script';
 import type { BlockKind } from './engine/scheduler';
 import { DEFAULT_SCALE_ID, ROOT_HZ, type Scale } from './engine/tuning';
+import { MAX_WAVE_POINTS, type WaveRole } from './engine/wave';
 import type { Piece } from './piece';
 
 // Every piece that comes in — from this browser's storage, a file, or a shared
@@ -13,8 +14,9 @@ import type { Piece } from './piece';
 // a hostile piece can't make the page grind. Pieces saved by earlier versions,
 // which lack newer fields, get those fields' defaults the same way.
 
-const LIMITS = { blocks: 2000, links: 4000, regions: 200, scales: 100, notes: 1000, bends: 64, code: 4000, text: 200, id: 100 };
-const KINDS: BlockKind[] = ['start', 'tone', 'pluck', 'bass', 'kick', 'snare', 'hat'];
+const LIMITS = { blocks: 2000, links: 4000, regions: 200, waves: 400, scales: 100, notes: 1000, bends: 64, code: 4000, text: 200, id: 100 };
+const WAVE_ROLES: WaveRole[] = ['cycle', 'motion'];
+const KINDS: BlockKind[] = ['start', 'tone', 'pluck', 'bass', 'jawharp', 'khuur', 'kick', 'snare', 'hat'];
 const FAR = 1e6;
 
 type Raw = Record<string, unknown>;
@@ -139,6 +141,15 @@ export function readPiece(raw: unknown): Piece {
     }),
   );
 
+  const waves = unique(
+    list(raw.waves, LIMITS.waves).map((v) => {
+      if (!isObject(v) || !id(v.id) || !WAVE_ROLES.includes(v.role as WaveRole)) return null;
+      const points = list(v.points, MAX_WAVE_POINTS).map(point).filter((p) => p !== null);
+      if (points.length < 2) return null;
+      return { id: v.id as string, role: v.role as WaveRole, points };
+    }),
+  );
+
   return {
     version: 1,
     bpm: int(raw.bpm, 50, 200, 112),
@@ -149,5 +160,6 @@ export function readPiece(raw: unknown): Piece {
     blocks,
     links,
     regions,
+    waves,
   };
 }

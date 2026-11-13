@@ -99,6 +99,32 @@ describe('App', () => {
     act(() => root.unmount());
   });
 
+  it('adds a jaw harp and a khuur, both pitched from the scale', async () => {
+    const { host, root } = await mount();
+    await act(async () => button(host, 'Jaw harp').click());
+    expect(host.querySelector('.block.is-selected .block-sub')!.textContent).toBe('jaw');
+    expect(host.querySelector('.inspector .stepper')).not.toBeNull();
+    await act(async () => button(host, 'Khuur').click());
+    expect(host.querySelector('.block.is-selected .block-sub')!.textContent).toBe('khuur');
+    expect(host.querySelector('.inspector .segmented .is-on')!.textContent).toBe('Khuur');
+    act(() => root.unmount());
+  });
+
+  it('drops a saw on the wave layer and autosaves it', async () => {
+    const { host, root } = await mount();
+    await act(async () => button(host, 'Waves').click());
+    await act(async () => button(host, 'Saw').click());
+    expect(host.querySelectorAll('.wave-cycle')).toHaveLength(1);
+    expect(host.querySelector('.inspector-title')!.textContent).toBe('Wave');
+
+    await act(() => new Promise((r) => setTimeout(r, 450)));
+    const saved = JSON.parse(localStorage.getItem('pulse-canvas:piece:v1')!);
+    expect(saved.waves).toHaveLength(1);
+    expect(saved.waves[0].role).toBe('cycle');
+    expect(saved.waves[0].points.length).toBeGreaterThan(1);
+    act(() => root.unmount());
+  });
+
   it('pulling a link out bends it, and the bend is saved', async () => {
     const { host, root } = await mount();
     const edge = () => host.querySelector('.react-flow__edge[data-id="mel-1>bass"]')!;

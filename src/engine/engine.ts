@@ -5,6 +5,7 @@ import { Mixer, type BusSettings } from './mixer';
 import { WavRecorder } from './recorder';
 import { loadSampleBytes } from './samples';
 import { Scheduler, type GraphBlock, type GraphLink, type NoteShape } from './scheduler';
+import { busWavesKey, type BusWaves } from './wave';
 
 // Sound is scheduled on the audio clock, a little ahead of time, never from
 // animation frames. Each tick commits every hit due in the next LOOKAHEAD
@@ -33,6 +34,8 @@ export class Engine {
   private recorder: WavRecorder | null = null;
   private interval: number | null = null;
   private starting = false;
+  private waveProgram = new Map<string, BusWaves>();
+  private waveKey = '';
 
   get playing() {
     return this.scheduler.playing;
@@ -81,7 +84,10 @@ export class Engine {
     this.interval = null;
     this.scheduler.stop();
     this.flashes = [];
-    this.mixer?.silence(this.audioNow());
+    const now = this.audioNow();
+    this.mixer?.silence(now);
+    // Leave the filter where the motion starts, so the next play matches the dot on the left.
+    this.mixer?.park(this.buses, now);
   }
 
   /** Play one block's sound right now, outside the pulse flow. */
@@ -99,7 +105,17 @@ export class Engine {
     this.buses = buses;
     if (!this.mixer) return;
     this.mixer.sync(buses, this.clock.secondsPerBeat);
+    this.applyWaves();
     void this.loadSamples();
+  }
+
+  /** Drawn cycles and cutoff motions, keyed by region id. '' is outside every region. */
+  setWaves(program: Map<string, BusWaves>) {
+    const key = busWavesKey(program);
+    if (key === this.waveKey) return;
+    this.waveKey = key;
+    this.waveProgram = program;
+    this.applyWaves();
   }
 
   /** Decodes a stored sample so tones can play it. Rejects if it's gone or isn't audio. */
@@ -124,8 +140,10 @@ export class Engine {
 
   setBpm(bpm: number) {
     this.clock.setBpm(bpm, this.playing ? this.audioNow() : 0);
-    // Echo times are in beats.
-    this.mixer?.sync(this.buses, this.clock.secondsPerBeat);
+    // Echo times are in beats, and a tempo change retimes the filter motions too.
+    if (!this.mixer) return;
+    this.mixer.sync(this.buses, this.clock.secondsPerBeat);
+    this.applyWaves();
   }
 
   fire(blockId: string) {
@@ -155,7 +173,17 @@ export class Engine {
       this.mixer.sync(this.buses, this.clock.secondsPerBeat);
     }
     await this.loadSamples();
+    this.applyWaves();
     return this.mixer;
+  }
+
+  /** Puts the current drawings on every bus, and the filter on the right curve. */
+  private applyWaves() {
+    if (!this.mixer) return;
+    this.mixer.install(this.waveProgram);
+    const now = this.audioNow();
+    if (this.playing) this.mixer.advance(this.clock, this.buses, now, now + LOOKAHEAD);
+    else this.mixer.park(this.buses, now);
   }
 
   // A sample that can't load leaves its region on the synth rather than silent.
@@ -169,6 +197,7 @@ export class Engine {
     this.scheduler.advance(this.clock.beatAt(now + LOOKAHEAD));
     this.scheduler.prune(this.clock.beatAt(now) - 1);
     this.flashes = this.flashes.filter((f) => f.time > now - 1);
+    this.mixer?.advance(this.clock, this.buses, now, now + LOOKAHEAD);
   }
 
   /** `shift` is the pulse's transposition, in scale degrees. */

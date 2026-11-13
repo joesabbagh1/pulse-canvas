@@ -19,9 +19,10 @@ import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as R
 import { BlockNodeView } from './canvas/BlockNode';
 import { LinkEdgeView, LinkPreview } from './canvas/LinkEdge';
 import { PulseLayer } from './canvas/PulseLayer';
-import { AddDock, ZoomControls } from './canvas/CanvasControls';
+import { AddDock, ZoomControls, type Layer } from './canvas/CanvasControls';
 import { LoopLabels } from './canvas/LoopLabels';
 import { RegionNodeView } from './canvas/RegionNode';
+import { WaveLayer } from './canvas/WaveLayer';
 import { Engine } from './engine/engine';
 import { ExamplesPage } from './ExamplesPage';
 import { BLOCK_SIZE, GRID, PX_PER_BEAT, fitLength, formatBeats, linkBeats, linkPath, type XY } from './engine/geometry';
@@ -59,7 +60,17 @@ import {
 import { pieceCycle } from './cycle';
 import { findLoops } from './loops';
 import { PiecePanel } from './PiecePanel';
-import { regionAt, regionContents } from './regions';
+import { regionAt, regionContents, regionRect } from './regions';
+import {
+  compileWaves,
+  heardCycleIds,
+  motionBeats,
+  stampOf,
+  waveCenter,
+  type Stamp,
+  type Wave,
+  type WaveRole,
+} from './engine/wave';
 import { SettingsContext } from './settings';
 import { MOD, TopBar, clockTime } from './TopBar';
 import type { MenuItem } from './ui/Menu';
@@ -93,6 +104,10 @@ function Studio() {
   const [initial] = useState(loadPiece);
   const [nodes, setNodes, onNodesChange] = useNodesState(toNodes(initial));
   const [edges, setEdges, onEdgesChange] = useEdgesState(toEdges(initial));
+  const [waves, setWaves] = useState<Wave[]>(initial.waves ?? []);
+  const [layer, setLayer] = useState<Layer>('beats');
+  const [pencil, setPencil] = useState(false);
+  const [selectedWaveId, setSelectedWaveId] = useState<string | null>(null);
   const [bpm, setBpm] = useState(initial.bpm);
   const [snap, setSnap] = useState(initial.snap);
   const [scaleId, setScaleId] = useState(initial.scaleId);
@@ -123,15 +138,28 @@ function Studio() {
   useEffect(() => engine.setBpm(bpm), [engine, bpm]);
   useEffect(() => () => engine.stop(), [engine]);
 
+  // Region geometry, not every block drag: a wave's bus is the region its centre is in.
+  const regionKey = useMemo(
+    () => nodes.filter(isRegion).map((n) => {
+      const r = regionRect(n);
+      return `${n.id}:${r.x}:${r.y}:${r.w}:${r.h}`;
+    }).join('|'),
+    [nodes],
+  );
   useEffect(() => {
-    const timer = setTimeout(() => savePiece(toPiece(nodes, edges, { bpm, snap, scaleId, rootHz, scales: importedScales })), 400);
+    engine.setWaves(compileWaves(waves, (at) => regionAt(nodes, at)?.id, snap));
+    // `regionKey` is the region geometry; block drags don't change which bus a wave plays on.
+  }, [engine, waves, snap, regionKey]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => savePiece(toPiece(nodes, edges, { bpm, snap, scaleId, rootHz, scales: importedScales }, waves)), 400);
     return () => clearTimeout(timer);
-  }, [nodes, edges, bpm, snap, scaleId, rootHz, importedScales]);
+  }, [nodes, edges, waves, bpm, snap, scaleId, rootHz, importedScales]);
 
   // Everything undoable is in the piece; selection and view are not.
   const pieceJson = useMemo(
-    () => JSON.stringify(toPiece(nodes, edges, { bpm, snap, scaleId, rootHz, scales: importedScales })),
-    [nodes, edges, bpm, snap, scaleId, rootHz, importedScales],
+    () => JSON.stringify(toPiece(nodes, edges, { bpm, snap, scaleId, rootHz, scales: importedScales }, waves)),
+    [nodes, edges, waves, bpm, snap, scaleId, rootHz, importedScales],
   );
 
   // Puts an undo step back, keeping what's selected and what React Flow has
@@ -154,6 +182,8 @@ function Studio() {
     setScaleId(piece.scaleId);
     setRootHz(piece.rootHz);
     setImportedScales(piece.scales);
+    setWaves(piece.waves ?? []);
+    setSelectedWaveId((id) => ((piece.waves ?? []).some((w) => w.id === id) ? id : null));
   };
   const { undo, redo, canUndo, canRedo } = useHistory(pieceJson, restore);
 
@@ -169,6 +199,21 @@ function Studio() {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [undo, redo]);
+
+  // A selected wave isn't a React Flow node, so delete it here. Capture runs
+  // before the canvas, which would otherwise see a key it has nothing for.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (isTyping(e.target) || (e.key !== 'Backspace' && e.key !== 'Delete') || !selectedWaveId) return;
+      if (nodes.some((n) => n.selected) || edges.some((e) => e.selected)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setWaves((ws) => ws.filter((w) => w.id !== selectedWaveId));
+      setSelectedWaveId(null);
+    };
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => window.removeEventListener('keydown', onKeyDown, true);
+  }, [selectedWaveId, nodes, edges]);
 
   // Imported scales are named by their content, so a re-import is a no-op.
   const importScale = useCallback(
@@ -210,21 +255,26 @@ function Studio() {
   // A dragged region brings along what's inside it, and links dragged along
   // with both of their blocks keep their shape. Offsets are taken from where
   // the drag started, so fast drags can't make anything drift.
-  const carried = useRef<{ start: Map<string, XY>; riders: Map<string, XY>; bends: Map<string, XY[]> } | null>(null);
+  const carried = useRef<{ start: Map<string, XY>; riders: Map<string, XY>; bends: Map<string, XY[]>; waves: Map<string, XY[]> } | null>(null);
 
   const onNodeDragStart: OnNodeDrag<CanvasNode> = useCallback(
     (_, __, dragged) => {
       const start = new Map(dragged.map((n) => [n.id, n.position]));
       const riders = new Map<string, XY>();
+      const waveStarts = new Map<string, XY[]>();
       for (const d of dragged) {
         const region = nodes.find((n) => n.id === d.id);
         if (!region || !isRegion(region)) continue;
         for (const n of regionContents(nodes, region)) if (!start.has(n.id)) riders.set(n.id, n.position);
+        for (const w of waves) {
+          if (waveStarts.has(w.id)) continue;
+          if (regionAt([region], waveCenter(w.points))) waveStarts.set(w.id, w.points.map((p) => ({ ...p })));
+        }
       }
       const bends = bendsCarriedBy(edges, new Set([...start.keys(), ...riders.keys()]));
-      carried.current = bends.size || riders.size ? { start, riders, bends } : null;
+      carried.current = bends.size || riders.size || waveStarts.size ? { start, riders, bends, waves: waveStarts } : null;
     },
-    [nodes, edges],
+    [nodes, edges, waves],
   );
 
   const onNodeDrag: OnNodeDrag<CanvasNode> = useCallback(
@@ -240,6 +290,14 @@ function Studio() {
           ns.map((n) => {
             const p = c.riders.get(n.id);
             return p ? { ...n, position: { x: p.x + dx, y: p.y + dy } } : n;
+          }),
+        );
+      }
+      if (c.waves.size) {
+        setWaves((ws) =>
+          ws.map((w) => {
+            const pts = c.waves.get(w.id);
+            return pts ? { ...w, points: pts.map((p) => ({ x: p.x + dx, y: p.y + dy })) } : w;
           }),
         );
       }
@@ -315,8 +373,29 @@ function Studio() {
   };
 
   const onPaneDoubleClick = (e: ReactMouseEvent) => {
+    if (layer === 'waves') return;
     if (!(e.target as HTMLElement).classList.contains('react-flow__pane')) return;
     addBlock({ kind: 'tone', degree: 0, every: 0 }, screenToFlowPosition({ x: e.clientX, y: e.clientY }));
+  };
+
+  const clearFlowSelection = useCallback(() => {
+    setNodes((ns) => ns.map((n) => (n.selected ? { ...n, selected: false } : n)));
+    setEdges((es) => es.map((e) => (e.selected ? { ...e, selected: false } : e)));
+  }, [setNodes, setEdges]);
+
+  const addWave = useCallback(
+    (role: WaveRole, points: XY[]) => {
+      const id = newId('w');
+      setWaves((ws) => [...ws, { id, role, points }]);
+      setSelectedWaveId(id);
+      clearFlowSelection();
+    },
+    [clearFlowSelection],
+  );
+
+  const addStamp = (stamp: Stamp) => {
+    const shape = stampOf(stamp, viewCenter(40));
+    addWave(shape.role, shape.points);
   };
 
   const onConnect = useCallback(
@@ -401,6 +480,15 @@ function Studio() {
     region: regionAt(nodes, selectedBlock.position)?.data.name,
   };
   const selectedEdge = selectedNode ? undefined : edges.find((e) => e.selected);
+  const selectedWave = !selectedNode && !selectedEdge ? waves.find((w) => w.id === selectedWaveId) : undefined;
+  const waveInfo = selectedWave && {
+    role: selectedWave.role,
+    beats: motionBeats(selectedWave.points, snap),
+    place: regionAt(nodes, waveCenter(selectedWave.points))?.data.name || null,
+    heard: selectedWave.role !== 'cycle' || heardCycleIds(waves, (at) => regionAt(nodes, at)?.id).has(selectedWave.id),
+    sampled: !!regionAt(nodes, waveCenter(selectedWave.points))?.data.sample,
+    points: selectedWave.points.length,
+  };
   let selectedLink: { beats: number; minBeats: number; bends: number; code: string } | undefined;
   if (selectedEdge) {
     const a = nodes.find((n) => n.id === selectedEdge.source);
@@ -454,6 +542,8 @@ function Studio() {
     setPlaying(false);
     setNodes(toNodes(piece));
     setEdges(toEdges(piece));
+    setWaves(piece.waves ?? []);
+    setSelectedWaveId(null);
     setBpm(piece.bpm);
     setSnap(piece.snap);
     setScaleId(piece.scaleId);
@@ -462,7 +552,7 @@ function Studio() {
     setTimeout(() => void fitView({ padding: 0.25, duration: 300 }), 50);
   };
 
-  const currentPiece = () => toPiece(nodes, edges, { bpm, snap, scaleId, rootHz, scales: importedScales });
+  const currentPiece = () => toPiece(nodes, edges, { bpm, snap, scaleId, rootHz, scales: importedScales }, waves);
 
   // A shared link opens its piece. A first visit just shows it; otherwise ask,
   // since it replaces the work saved in this browser. The fragment is cleared
@@ -572,7 +662,7 @@ function Studio() {
   const newPiece = async () => {
     const ok = await confirmDialog({
       title: 'Start a new piece?',
-      message: `Every block, link, and region goes away. ${MOD}Z brings them back.`,
+      message: `Every block, link, region, and wave goes away. ${MOD}Z brings them back.`,
       confirmLabel: 'New piece',
       danger: true,
     });
@@ -687,8 +777,8 @@ function Studio() {
           }}
         />
 
-        <div className={`workspace${selectedNode || selectedLink ? ' has-selection' : ''}`}>
-          <div className="stage" ref={wrapperRef}>
+        <div className={`workspace${selectedNode || selectedLink || waveInfo ? ' has-selection' : ''}`}>
+          <div className={`stage${layer === 'waves' ? ' is-waves' : ''}${layer === 'waves' && pencil ? ' is-drawing' : ''}`} ref={wrapperRef}>
             <ReactFlow
               nodes={nodes}
               edges={edges}
@@ -701,6 +791,10 @@ function Studio() {
               isValidConnection={isValidConnection}
               connectionLineComponent={LinkPreview}
               onNodeDoubleClick={onNodeDoubleClick}
+              onPaneClick={() => setSelectedWaveId(null)}
+              onNodeClick={() => setSelectedWaveId(null)}
+              onEdgeClick={() => setSelectedWaveId(null)}
+              panOnDrag={layer === 'waves' && pencil ? [1, 2] : true}
               onNodeDragStart={onNodeDragStart}
               onNodeDrag={onNodeDrag}
               onNodeDragStop={() => (carried.current = null)}
@@ -719,8 +813,33 @@ function Studio() {
             >
               <Background variant={BackgroundVariant.Dots} gap={PX_PER_BEAT * GRID} size={1.4} color="#2a2e39" />
               <LoopLabels loops={loops} blocks={blockPositions} />
+              <WaveLayer
+                waves={waves}
+                selectedId={selectedWaveId}
+                snap={snap}
+                drawing={layer === 'waves' && pencil}
+                ghost={layer !== 'waves'}
+                engine={engine}
+                onSelect={(id) => {
+                  setSelectedWaveId(id);
+                  if (id) clearFlowSelection();
+                }}
+                onPoints={(id, points) => setWaves((ws) => ws.map((w) => (w.id === id ? { ...w, points } : w)))}
+                onCreate={(points) => addWave('cycle', points)}
+              />
               <PulseLayer engine={engine} />
-              <AddDock onAdd={addFromToolbar} onAddRegion={addRegion} />
+              <AddDock
+                layer={layer}
+                pencil={pencil}
+                onLayer={(next) => {
+                  setLayer(next);
+                  setPencil(next === 'waves');
+                }}
+                onPencil={() => setPencil((on) => !on)}
+                onAdd={addFromToolbar}
+                onAddRegion={addRegion}
+                onStamp={addStamp}
+              />
               <ZoomControls />
               {playing && (
                 <Panel position="top-left" className={`status${stats.overflow ? ' warn' : ''}`}>
@@ -733,13 +852,14 @@ function Studio() {
             </ReactFlow>
           </div>
 
-          <aside className="sidebar" aria-label={selectedNode || selectedLink ? 'Selection' : 'Piece'}>
-            {selectedNode || selectedLink ? (
+          <aside className="sidebar" aria-label={selectedNode || selectedLink || waveInfo ? 'Selection' : 'Piece'}>
+            {selectedNode || selectedLink || waveInfo ? (
               <Inspector
                 node={selectedBlock}
                 nodeTuning={blockTuning}
                 region={selectedRegion}
                 link={selectedLink}
+                wave={waveInfo || undefined}
                 playing={playing}
                 onChange={updateBlock}
                 onLinkCode={setLinkCode}
@@ -750,14 +870,22 @@ function Studio() {
                 onRemoveScale={(id) => void removeScale(id)}
                 onFire={(id) => engine.fire(id)}
                 onStraighten={straightenSelection}
-                onDelete={deleteSelection}
+                onWaveRole={(role) => selectedWave && setWaves((ws) => ws.map((w) => (w.id === selectedWave.id ? { ...w, role } : w)))}
+                onDelete={() => {
+                  if (!selectedWave) {
+                    deleteSelection();
+                    return;
+                  }
+                  setWaves((ws) => ws.filter((w) => w.id !== selectedWave.id));
+                  setSelectedWaveId(null);
+                }}
                 takenKeys={takenKeys}
               />
             ) : (
               <PiecePanel
                 rootHz={rootHz}
                 scaleId={scaleId}
-                counts={{ blocks: nodes.filter(isBlock).length, links: edges.length, regions: nodes.filter(isRegion).length }}
+                counts={{ blocks: nodes.filter(isBlock).length, links: edges.length, regions: nodes.filter(isRegion).length, waves: waves.length }}
                 loops={loops}
                 cycle={cycle}
                 bpm={bpm}

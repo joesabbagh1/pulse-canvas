@@ -10,7 +10,7 @@ import { routeHref } from './ui/route';
 interface Props {
   rootHz: number;
   scaleId: string;
-  counts: { blocks: number; links: number; regions: number };
+  counts: { blocks: number; links: number; regions: number; waves: number };
   loops: Loop[];
   cycle: Cycle;
   bpm: number;
@@ -27,6 +27,7 @@ const TIPS: [string, string][] = [
   ['Drag a link', 'to bend it: longer links take longer'],
   ['Double-click', 'a block to fire a pulse from it'],
   ['Backspace', 'deletes what is selected'],
+  ['Waves', 'draws the synth: a cycle is the tone, a motion sweeps the filter'],
 ];
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
@@ -59,7 +60,7 @@ export function PiecePanel({ rootHz, scaleId, counts, loops, cycle, bpm, binding
     <div className="inspector">
       <div className="inspector-title">Piece</div>
       <p className="muted">
-        {plural(counts.blocks, 'block')} · {plural(counts.links, 'link')} · {plural(counts.regions, 'region')}
+        {plural(counts.blocks, 'block')} · {plural(counts.links, 'link')} · {plural(counts.regions, 'region')} · {plural(counts.waves, 'wave')}
       </p>
 
       <div className="field">

@@ -68,6 +68,10 @@ describe('readPiece', () => {
     expect(piece.rootHz).toBe(20);
     expect('evil' in piece).toBe(false);
     expect(piece.blocks).toHaveLength(1);
+    expect(readPiece({ ...base, blocks: [tone('j', { kind: 'jawharp' }), tone('k', { kind: 'khuur' })] }).blocks.map((b) => b.kind)).toEqual([
+      'jawharp',
+      'khuur',
+    ]);
     expect(piece.blocks[0]).toEqual({ id: 'a', x: 0, y: 0, kind: 'tone', degree: 200, every: 0, code: 'drop'.repeat(1000) });
     expect(piece.scales).toEqual([{ id: 's', name: 'S', cents: [0, 700], period: 1200 }]);
     expect(piece.regions[0]).toMatchObject({ mix: { level: 6, pan: -1, mute: false }, fx: { tone: 1, echo: 0 } });
@@ -84,6 +88,20 @@ describe('readPiece', () => {
     expect(piece.blocks.map((b) => b.key)).toEqual(['k', undefined, undefined]);
     expect(piece.regions[0]).toMatchObject({ key: '7', groove: { swing: 1, swingGrid: 0.25, humanize: 0 } });
     expect(piece.regions[1].groove).toEqual({ swing: 0, swingGrid: 0.5, humanize: 0 });
+  });
+
+  it('keeps drawn waves and drops ones that are not drawings', () => {
+    const piece = readPiece({
+      ...base,
+      waves: [
+        { id: 'saw', role: 'cycle', points: [{ x: 0, y: -10 }, { x: 240, y: 10 }] },
+        { id: 'bad', role: 'laser', points: [{ x: 0, y: 0 }, { x: 10, y: 0 }] },
+        { id: 'short', role: 'motion', points: [{ x: 0, y: 0 }] },
+        { id: 'saw', role: 'motion', points: [{ x: 0, y: 0 }, { x: 1, y: 1 }] },
+      ],
+    });
+    expect(piece.waves).toEqual([{ id: 'saw', role: 'cycle', points: [{ x: 0, y: -10 }, { x: 240, y: 10 }] }]);
+    expect(readPiece(base).waves).toEqual([]);
   });
 });
 

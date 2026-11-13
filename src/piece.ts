@@ -6,6 +6,7 @@ import { DEFAULT_GROOVE, type Groove } from './engine/groove';
 import type { SampleRef } from './engine/samples';
 import type { BlockKind, GraphBlock, GraphLink } from './engine/scheduler';
 import { DEFAULT_SCALE_ID, ROOT_HZ, scaleById, type Scale, type Tuning } from './engine/tuning';
+import type { Wave } from './engine/wave';
 import { readPiece } from './readPiece';
 import { REGION_Z, regionAt } from './regions';
 
@@ -54,6 +55,11 @@ export interface Piece extends Settings {
   links: { id: string; from: string; to: string; bends?: XY[]; code?: string }[];
   /** x and y are the top-left corner. */
   regions: ({ id: string; x: number; y: number; w: number; h: number } & RegionInit)[];
+  /**
+   * Drawn synth shapes. Absent on pieces saved before waves existed; readers
+   * fill in `[]`.
+   */
+  waves?: Wave[];
 }
 
 const STORAGE_KEY = 'pulse-canvas:piece:v1';
@@ -114,7 +120,7 @@ export function bendsOf(edge: LinkEdge): XY[] {
   return edge.data?.bends ?? [];
 }
 
-export function toPiece(nodes: CanvasNode[], edges: LinkEdge[], settings: Settings): Piece {
+export function toPiece(nodes: CanvasNode[], edges: LinkEdge[], settings: Settings, waves: Wave[] = []): Piece {
   return {
     version: 1,
     ...settings,
@@ -139,6 +145,7 @@ export function toPiece(nodes: CanvasNode[], edges: LinkEdge[], settings: Settin
       const code = e.data?.code;
       return { id: e.id, from: e.source, to: e.target, ...(bends.length ? { bends } : {}), ...(code ? { code } : {}) };
     }),
+    waves,
   };
 }
 
@@ -219,7 +226,7 @@ export function savePiece(piece: Piece) {
 }
 
 export function emptyPiece(settings: Settings): Piece {
-  return { version: 1, ...settings, blocks: [{ id: 'start', x: 0, y: 0, kind: 'start', degree: 0, every: 0 }], links: [], regions: [] };
+  return { version: 1, ...settings, blocks: [{ id: 'start', x: 0, y: 0, kind: 'start', degree: 0, every: 0 }], links: [], regions: [], waves: [] };
 }
 
 // The first patch anyone sees, and the tour on the examples page: a 2-beat
@@ -273,6 +280,7 @@ export function demoPiece(): Piece {
       ...mel.links,
       { id: 'mel-1>bass', from: 'mel-1', to: 'bass', code: 'every 4: delay 1/2  # push every 4th bass note late' },
     ],
+    waves: [],
     regions: [
       {
         id: 'maqam',
