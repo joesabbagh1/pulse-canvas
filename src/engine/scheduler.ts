@@ -43,6 +43,8 @@ export interface GraphBlock extends Tuning {
   bus?: string;
   /** Pattern blocks: 0 to 1, how loud the pattern is. Unset is full. */
   level?: number;
+  /** Pattern blocks: 0 (dark) to 1 (open), its own low-pass. Unset is open. */
+  tone?: number;
 }
 
 /** Voices that hold a note for as long as they're told to. Plucks, mallets and drums ring out on their own. */

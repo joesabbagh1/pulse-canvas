@@ -1,8 +1,9 @@
 import { Handle, Position, useReactFlow, type NodeProps } from '@xyflow/react';
-import { memo, useMemo, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
+import { memo, useMemo, useSyncExternalStore, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { BOX_HEIGHT, GRID, MAX_SPAN, MIN_SPAN, PX_PER_BEAT, formatBeats, patternFrame, spanOf } from '../engine/geometry';
 import { instrumentById } from '../engine/instruments';
 import { PatternFigure, scaleSteps } from './figures';
+import { livePass, subscribeLive } from './livePass';
 import { compilePattern } from '../engine/pattern';
 import { compile, run, type Target } from '../engine/script';
 import { describePitch } from '../engine/tuning';
@@ -83,11 +84,13 @@ function PatternBox({ id, data, selected }: NodeProps<BlockNode>) {
   const width = span * PX_PER_BEAT;
   const source = data.pattern ?? '';
   const pattern = useMemo(() => compilePattern(source), [source]);
-  const shape = useMemo(() => {
+  const resting = useMemo(() => {
     const out = run(compile(data.code ?? '', 'block'), 1, () => 0);
     return { fast: out.fast, rev: out.rev, transpose: out.transpose };
   }, [data.code]);
-  const notes = useMemo(() => pattern.notes(0, 0, 1, shape), [pattern, shape]);
+  const passing = useSyncExternalStore(subscribeLive, () => livePass(id), () => null);
+  const shape = passing ?? resting;
+  const notes = useMemo(() => pattern.notes(passing?.cycle ?? 0, 0, 1, shape), [pattern, shape, passing?.cycle]);
   const inst = data.kind === 'start' ? undefined : instrumentById(data.kind);
   const color = blockColor(data.kind, data.degree, scale);
 
@@ -116,6 +119,20 @@ function PatternBox({ id, data, selected }: NodeProps<BlockNode>) {
           onChange={(e) => {
             const level = Math.min(1, Math.max(0, Number(e.target.value)));
             updateNodeData(id, { level: level >= 0.999 ? undefined : level });
+          }}
+        />
+        <input
+          className="box-level nodrag nopan"
+          type="range"
+          min={0}
+          max={1}
+          step={0.01}
+          value={data.tone ?? 1}
+          aria-label="Filter"
+          title="How open this pattern's filter is. Fully right is bright."
+          onChange={(e) => {
+            const tone = Math.min(1, Math.max(0, Number(e.target.value)));
+            updateNodeData(id, { tone: tone >= 0.999 ? undefined : tone });
           }}
         />
         <span className="box-beats" title="Its length in beats: how long a pulse takes to cross it">
@@ -152,7 +169,7 @@ function PatternBox({ id, data, selected }: NodeProps<BlockNode>) {
         span={span}
         color={color}
         steps={scaleSteps(scale)}
-        root={data.degree + shape.transpose}
+        root={data.degree + (passing?.shift ?? resting.transpose)}
       />
       <Resize id={id} span={span} />
       <span className="box-port box-in" aria-hidden="true" />

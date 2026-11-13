@@ -34,6 +34,8 @@ export type BlockData = {
   figure?: PatternFigure;
   /** Pattern blocks: 0 to 1, how loud the pattern is. Unset is full. */
   level?: number;
+  /** Pattern blocks: 0 (dark) to 1 (open). Unset is open. */
+  tone?: number;
 };
 export type BlockNode = Node<BlockData, 'block'>;
 /**
@@ -121,7 +123,7 @@ export function regionNode(id: string, rect: { x: number; y: number; w: number; 
 export function toNodes(piece: Piece): CanvasNode[] {
   return [
     ...piece.regions.map(({ id, x, y, w, h, ...data }) => regionNode(id, { x, y, w, h }, data)),
-    ...piece.blocks.map(({ id, x, y, kind, degree, every, code, key, pattern, beats, figure, level }): BlockNode => {
+    ...piece.blocks.map(({ id, x, y, kind, degree, every, code, key, pattern, beats, figure, level, tone }): BlockNode => {
       const data = {
         kind,
         degree,
@@ -134,6 +136,7 @@ export function toNodes(piece: Piece): CanvasNode[] {
               beats: spanOf({ pattern, beats }),
               ...(figure && figure !== 'roll' ? { figure } : {}),
               ...(typeof level === 'number' && level < 1 ? { level } : {}),
+              ...(typeof tone === 'number' && tone < 1 ? { tone } : {}),
             }
           : {}),
       };

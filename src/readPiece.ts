@@ -129,6 +129,7 @@ export function readPiece(raw: unknown): Piece {
       const pattern = typeof v.pattern === 'string' && v.kind !== 'start' ? v.pattern.slice(0, MAX_PATTERN_CHARS).replace(/\s+/g, ' ') : undefined;
       const figure = pattern !== undefined ? readFigure(v.figure) : undefined;
       const level = pattern !== undefined && typeof v.level === 'number' ? num(v.level, 0, 1, 1) : undefined;
+      const tone = pattern !== undefined && typeof v.tone === 'number' ? num(v.tone, 0, 1, 1) : undefined;
       return {
         id: v.id as string,
         x: num(v.x, -FAR, FAR, 0),
@@ -144,6 +145,7 @@ export function readPiece(raw: unknown): Piece {
               beats: num(v.beats, MIN_SPAN, MAX_SPAN, spanOf({ pattern })),
               ...(figure ? { figure } : {}),
               ...(level !== undefined && level < 1 ? { level } : {}),
+              ...(tone !== undefined && tone < 1 ? { tone } : {}),
             }
           : {}),
       };

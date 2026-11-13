@@ -146,7 +146,9 @@ export class Engine {
 
   setGraph(blocks: GraphBlock[], links: GraphLink[]) {
     this.scheduler.setGraph(blocks, links, this.currentBeat());
-    this.ear.drop(new Set(blocks.filter((block) => block.pattern !== undefined).map((block) => block.id)));
+    const patterns = new Set(blocks.filter((block) => block.pattern !== undefined).map((block) => block.id));
+    this.ear.drop(patterns);
+    this.mixer?.dropLanes(patterns);
   }
 
   /** Each region's mix, effects and sample, by region id. */

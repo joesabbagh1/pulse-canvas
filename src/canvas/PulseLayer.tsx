@@ -2,6 +2,7 @@ import { useStoreApi } from '@xyflow/react';
 import { useEffect, useRef } from 'react';
 import type { Engine } from '../engine/engine';
 import { compilePattern } from '../engine/pattern';
+import { setLivePasses } from './livePass';
 import { playhead } from './playhead';
 import { BLOCK_R, PX_PER_BEAT, inPort, slicePath, spanOf } from '../engine/geometry';
 import { blockColor } from '../settings';
@@ -88,7 +89,10 @@ export function PulseLayer({ engine }: { engine: Engine }) {
       }
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, w, h);
-      if (!engine.playing) return;
+      if (!engine.playing) {
+        setLivePasses([]);
+        return;
+      }
 
       const [tx, ty, zoom] = store.getState().transform;
       const now = engine.heardNow();
@@ -142,6 +146,7 @@ export function PulseLayer({ engine }: { engine: Engine }) {
         y: a.y + (b.y - a.y) * u,
       });
       const lit = new Set<string>();
+      const active: { id: string; fast: number; rev: boolean; cycle: number; shift: number; start: number }[] = [];
       for (const run of engine.scheduler.runs) {
         if (beat < run.start || beat >= run.end) continue;
         const block = engine.scheduler.block(run.block);
@@ -178,8 +183,15 @@ export function PulseLayer({ engine }: { engine: Engine }) {
         if (block.pattern !== undefined) {
           lightPattern(node, block.pattern, t, { fast: run.fast, rev: run.rev }, run.cycle);
           lit.add(run.block);
+          const previous = active.find((pass) => pass.id === run.block);
+          if (!previous || run.start >= previous.start) {
+            const next = { id: run.block, fast: run.fast, rev: run.rev, cycle: run.cycle, shift: run.shift, start: run.start };
+            if (previous) active.splice(active.indexOf(previous), 1, next);
+            else active.push(next);
+          }
         }
       }
+      setLivePasses(active);
       for (const line of document.querySelectorAll('.box-line.is-live')) {
         const id = line.closest('.react-flow__node')?.getAttribute('data-id');
         if (!id || !lit.has(id)) line.classList.remove('is-live');

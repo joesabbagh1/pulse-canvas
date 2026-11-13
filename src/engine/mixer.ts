@@ -69,12 +69,16 @@ class Bus {
   /** Audio time up to which the filter curve is already scheduled. */
   private scheduledTo = 0;
 
+  /** Pattern filters meet the bus here, before its own tone filter. */
+  readonly into: Tone.Gain;
+
   constructor(output: Tone.InputNode) {
     this.channel = new Tone.Channel().connect(output);
     this.reverb = new Tone.Reverb({ decay: 3, wet: 0 }).connect(this.channel);
     this.echo = new Tone.FeedbackDelay({ delayTime: 0.4, feedback: 0.35, wet: 0 }).connect(this.reverb);
     this.filter = new Tone.Filter({ type: 'lowpass', frequency: toneHz(1), rolloff: -12 }).connect(this.echo);
-    this.voices = new Voices(this.filter);
+    this.into = new Tone.Gain(1).connect(this.filter);
+    this.voices = new Voices(this.into);
   }
 
   apply(settings: BusSettings, secondsPerBeat: number) {
@@ -150,6 +154,7 @@ class Bus {
 
   dispose() {
     this.voices.dispose();
+    this.into.dispose();
     this.filter.dispose();
     this.echo.dispose();
     this.reverb.dispose();
@@ -167,6 +172,9 @@ export class Mixer {
   private bands = new Tone.Analyser('fft', 512);
   private canvas = new Bus(this.output);
   private buses = new Map<string, Bus>();
+  /** A pattern block turned down from fully open plays through its own low-pass, so the rest of the bus stays bright. */
+  private lanes = new Map<string, { filter: Tone.Filter; voices: Voices; busId: string }>();
+  private program = new Map<string, BusWaves>();
   /**
    * Live notes skip the piece reverb. Its impulse is decaying noise, so a held
    * note was coming out under a steady hiss.
@@ -203,27 +211,67 @@ export class Mixer {
 
   /** The drawn cycles and cutoff motions, keyed by region id. '' is the canvas. */
   install(program: ReadonlyMap<string, BusWaves>) {
+    this.program = new Map(program);
     const canvas = program.get(CANVAS) ?? EMPTY_BUS_WAVES;
     this.canvas.install(canvas);
     this.live.setCycle(canvas.cycle);
     this.live.setInstrumentPrograms(canvas.instruments);
     for (const [id, bus] of this.buses) bus.install(program.get(id) ?? EMPTY_BUS_WAVES);
+    for (const lane of this.lanes.values()) this.syncLane(lane);
   }
 
   advance(clock: BeatClock, settings: ReadonlyMap<string, BusSettings>, now: number, until: number) {
     this.canvas.advance(DEFAULT_FX.tone, clock, now, until);
     for (const [id, bus] of this.buses) bus.advance(settings.get(id)?.fx.tone ?? DEFAULT_FX.tone, clock, now, until);
+    for (const lane of this.lanes.values()) lane.voices.advanceInstruments(this.baseTone(lane.busId, settings), clock, now, until);
   }
 
   park(settings: ReadonlyMap<string, BusSettings>, now: number) {
     this.canvas.park(DEFAULT_FX.tone, now);
     for (const [id, bus] of this.buses) bus.park(settings.get(id)?.fx.tone ?? DEFAULT_FX.tone, now);
+    for (const lane of this.lanes.values()) lane.voices.parkInstruments(this.baseTone(lane.busId, settings), now);
   }
 
   play(block: GraphBlock, time: number, secondsPerBeat: number, shape?: NoteShape) {
     const bus = (block.bus && this.buses.get(block.bus)) || this.canvas;
     const sampleId = bus.settings?.sample;
-    bus.voices.play(block, time, secondsPerBeat, sampleId ? this.samples.get(sampleId) : undefined, shape);
+    const tone = block.tone;
+    const voices =
+      block.pattern !== undefined && tone !== undefined && tone < 0.999 ? this.lane(block.id, block.bus ?? CANVAS, bus, tone).voices : bus.voices;
+    voices.play(block, time, secondsPerBeat, sampleId ? this.samples.get(sampleId) : undefined, shape);
+  }
+
+  /** Forget filters for pattern blocks that are gone. */
+  dropLanes(ids: ReadonlySet<string>) {
+    for (const [id, lane] of this.lanes) {
+      if (ids.has(id)) continue;
+      lane.voices.dispose();
+      lane.filter.dispose();
+      this.lanes.delete(id);
+    }
+  }
+
+  private baseTone(busId: string, settings: ReadonlyMap<string, BusSettings>) {
+    return (busId ? settings.get(busId)?.fx.tone : undefined) ?? DEFAULT_FX.tone;
+  }
+
+  private lane(id: string, busId: string, bus: Bus, tone: number) {
+    let lane = this.lanes.get(id);
+    if (!lane) {
+      const filter = new Tone.Filter({ type: 'lowpass', frequency: toneHz(tone), rolloff: -12 }).connect(bus.into);
+      const voices = new Voices(filter);
+      lane = { filter, voices, busId };
+      this.lanes.set(id, lane);
+      this.syncLane(lane);
+    }
+    lane.filter.frequency.rampTo(toneHz(tone), GLIDE);
+    return lane;
+  }
+
+  private syncLane(lane: { voices: Voices; busId: string }) {
+    const spec = this.program.get(lane.busId) ?? this.program.get(CANVAS) ?? EMPTY_BUS_WAVES;
+    lane.voices.setCycle(spec.cycle);
+    lane.voices.setInstrumentPrograms(spec.instruments);
   }
 
   /** A live note, dry. It holds until the gate is released. */

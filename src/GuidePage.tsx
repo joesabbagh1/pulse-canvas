@@ -195,9 +195,11 @@ const SECTIONS: Section[] = [
           <code>slow</code> and <code>rev</code> in its code change how that pass plays, and the drawing follows. Under
           the code it can be a <b>roll</b> of bars, the same roll stood on end, a <b>spiral</b>, or a <b>pitch wheel</b>.
           The notation is parsed, never run as JavaScript. <code>scale minor</code>, <code>octave -1</code> and{' '}
-          <code>sound piano</code> can lead the line, and the level slider sets how loud it is. While it plays, the
-          sounding word lights up, and a small wave of that box's notes draws along its bottom. The mix panel can also
-          scroll a spectrogram. A shared piece still can't run its own drawing code or Hydra.
+          <code>sound piano</code> can lead the line, and the level slider sets how loud it is. The filter slider beside it
+          darkens only this pattern. While a pulse is inside, the drawing and the lit word follow that pass, including{' '}
+          <code>every</code> and <code>chance</code>. The sounding word lights up, and a small wave of that box's notes
+          draws along its bottom. The mix panel can also scroll a spectrogram. A shared piece still can't run its own
+          drawing code or Hydra.
         </p>
       </>
     ),

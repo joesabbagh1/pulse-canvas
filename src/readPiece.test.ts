@@ -97,6 +97,10 @@ describe('readPiece', () => {
       blocks: [tone('a', { pattern: '0 2', beats: 2, figure: 'spiral' }), tone('b', { pattern: '0', beats: 1, figure: 'nope' })],
     });
     expect(piece.blocks.map((b) => b.figure)).toEqual(['spiral', undefined]);
+    expect(readPiece({ ...base, blocks: [tone('c', { pattern: '0', beats: 1, level: 0.5, tone: 0.25 })] }).blocks[0]).toMatchObject({
+      level: 0.5,
+      tone: 0.25,
+    });
   });
 
   it('keeps one-letter performance keys and a clamped groove, and drops the rest', () => {
