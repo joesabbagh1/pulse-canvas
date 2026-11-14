@@ -10,6 +10,7 @@ import { RootPicker, ScalePicker } from './ScalePicker';
 import { regionColor, useSettings } from './settings';
 
 const ECHO_TIMES = [0.25, 0.5, 0.75, 1];
+const PUMP_TIMES = [0.25, 0.5, 0.75, 1, 2];
 const SWING_GRIDS = [
   { grid: 0.5, label: '8ths' },
   { grid: 0.25, label: '16ths' },
@@ -138,6 +139,20 @@ export function RegionInspector({ region, takenKeys, onChange, onImportScale, on
           <span className="value">beat</span>
         </div>
         <Slider label="Reverb" value={fx.reverb} min={0} max={1} step={0.01} reset={DEFAULT_FX.reverb} format={percent} onChange={(reverb) => setFx({ reverb })} />
+        <Slider label="Drive" value={fx.drive} min={0} max={1} step={0.01} reset={DEFAULT_FX.drive} format={percent} onChange={(drive) => setFx({ drive })} />
+        <Slider label="Pump" value={fx.pump} min={0} max={1} step={0.01} reset={DEFAULT_FX.pump} format={percent} onChange={(pump) => setFx({ pump })} />
+        <div className="slider">
+          <span className="slider-label">Pump time</span>
+          <div className="segmented" role="group" aria-label="Pump time in beats">
+            {PUMP_TIMES.map((beats) => (
+              <button key={beats} className={beats === fx.pumpBeats ? 'is-on' : ''} onClick={() => setFx({ pumpBeats: beats })}>
+                {formatBeats(beats, true)}
+              </button>
+            ))}
+          </div>
+          <span className="value">beat</span>
+        </div>
+        <span className="muted">Dips when a kick plays in another region, then comes back. Kicks in this region leave it alone.</span>
       </div>
 
       <div className="field">

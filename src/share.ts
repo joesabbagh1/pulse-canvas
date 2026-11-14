@@ -109,8 +109,11 @@ export function sharedCode(hash: string): string | null {
 /** The piece with every sample it uses, as a file to download. */
 export async function pieceToFile(piece: Piece): Promise<Blob> {
   const samples: Record<string, string> = {};
-  for (const region of piece.regions) {
-    const id = region.sample?.id;
+  const used = [
+    ...piece.regions.map((region) => region.sample?.id),
+    piece.bed?.sample.id,
+  ];
+  for (const id of used) {
     if (!id || id in samples) continue;
     const bytes = await loadSampleBytes(id);
     if (bytes) samples[id] = toBase64(new Uint8Array(bytes));
@@ -144,12 +147,14 @@ export async function pieceFromFile(text: string): Promise<Piece> {
       }
     }
   }
+  const bedId = piece.bed && ids.get(piece.bed.sample.id);
   return {
     ...piece,
     regions: piece.regions.map((r) => {
       const id = r.sample && ids.get(r.sample.id);
       return id && r.sample ? { ...r, sample: { ...r.sample, id } } : r;
     }),
+    ...(piece.bed && bedId ? { bed: { ...piece.bed, sample: { ...piece.bed.sample, id: bedId } } } : {}),
   };
 }
 

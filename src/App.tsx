@@ -12,6 +12,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
+import { wholeClip, type Bed } from './bed';
 import { CanvasPage } from './CanvasPage';
 import { CanvasesPage } from './CanvasesPage';
 import { useDeck } from './deck/useDeck';
@@ -125,6 +126,9 @@ function Studio() {
   const [edges, setEdges, onEdgesChange] = useEdgesState(toEdges(initial));
   const [waves, setWaves] = useState<Wave[]>(initial.waves ?? []);
   const [takes, setTakes] = useState<Take[]>(initial.takes ?? []);
+  const [bed, setBed] = useState<Bed | null>(initial.bed ?? null);
+  const [bedPeaks, setBedPeaks] = useState<Float32Array | null>(null);
+  const [bedMissing, setBedMissing] = useState(false);
   const [pencil, setPencil] = useState(false);
   const [selectedWaveId, setSelectedWaveId] = useState<string | null>(null);
   const [bpm, setBpm] = useState(initial.bpm);
@@ -155,6 +159,24 @@ function Studio() {
   useEffect(() => engine.setBuses(new Map(JSON.parse(busKey))), [engine, busKey]);
   useEffect(() => engine.setSnap(snap), [engine, snap]);
   useEffect(() => engine.setBpm(bpm), [engine, bpm]);
+  useEffect(() => engine.setBed(bed), [engine, bed]);
+  useEffect(() => {
+    const id = bed?.sample.id;
+    if (!id) {
+      setBedPeaks(null);
+      setBedMissing(false);
+      return;
+    }
+    let live = true;
+    void engine.warmBed(id).then((got) => {
+      if (!live) return;
+      setBedPeaks(got?.peaks ?? null);
+      setBedMissing(got === null);
+    });
+    return () => {
+      live = false;
+    };
+  }, [engine, bed?.sample.id]);
   useEffect(() => () => engine.stop(), [engine]);
 
   // Region geometry, not every block drag: a wave's bus is the region its centre is in.
@@ -172,7 +194,7 @@ function Studio() {
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      const piece = toPiece(nodes, edges, { bpm, snap, scaleId, rootHz, scales: importedScales }, waves, takes);
+      const piece = toPiece(nodes, edges, { bpm, snap, scaleId, rootHz, scales: importedScales }, waves, takes, bed);
       savePiece(piece);
       setCanvases((prev) => {
         const next = prev.map((canvas) => (canvas.id === canvasId ? { ...canvas, piece, updatedAt: Date.now() } : canvas));
@@ -181,12 +203,12 @@ function Studio() {
       });
     }, 400);
     return () => clearTimeout(timer);
-  }, [nodes, edges, waves, takes, bpm, snap, scaleId, rootHz, importedScales, canvasId]);
+  }, [nodes, edges, waves, takes, bed, bpm, snap, scaleId, rootHz, importedScales, canvasId]);
 
   // Everything undoable is in the piece; selection and view are not.
   const pieceJson = useMemo(
-    () => JSON.stringify(toPiece(nodes, edges, { bpm, snap, scaleId, rootHz, scales: importedScales }, waves, takes)),
-    [nodes, edges, waves, takes, bpm, snap, scaleId, rootHz, importedScales],
+    () => JSON.stringify(toPiece(nodes, edges, { bpm, snap, scaleId, rootHz, scales: importedScales }, waves, takes, bed)),
+    [nodes, edges, waves, takes, bed, bpm, snap, scaleId, rootHz, importedScales],
   );
 
   // Puts an undo step back, keeping what's selected and what React Flow has
@@ -211,6 +233,7 @@ function Studio() {
     setImportedScales(piece.scales);
     setWaves(piece.waves ?? []);
     setTakes(piece.takes ?? []);
+    setBed(piece.bed ?? null);
     setSelectedWaveId((id) => ((piece.waves ?? []).some((w) => w.id === id) ? id : null));
   };
   const { undo, redo, canUndo, canRedo } = useHistory(pieceJson, restore);
@@ -512,6 +535,27 @@ function Studio() {
     toast('success', `Loaded ${file.name}`, 'Tones in this region now play it.');
   };
 
+  // Stored and decoded before it becomes the background, so a file that isn't
+  // audio never replaces one that is.
+  const loadBed = async (file: File) => {
+    let sample;
+    try {
+      sample = await storeSample(file);
+    } catch (err) {
+      toast('error', `Couldn't load ${file.name}`, (err as Error).message);
+      return;
+    }
+    const got = await engine.warmBed(sample.id);
+    if (!got) {
+      toast('error', `Couldn't load ${file.name}`, "It isn't audio this browser can decode.");
+      return;
+    }
+    setBedPeaks(got.peaks);
+    setBedMissing(false);
+    setBed({ sample, duration: got.duration, level: 0.8, clips: [wholeClip(got.duration)] });
+    toast('success', `Playing ${file.name} behind the piece`, 'Drag a cut to move it, its edges to trim, and Split to cut it.');
+  };
+
   const updateRegion = (id: string, patch: Partial<RegionData>) =>
     setNodes((ns) => ns.map((n) => (n.id === id && isRegion(n) ? { ...n, data: { ...n.data, ...patch } } : n)));
 
@@ -591,6 +635,7 @@ function Studio() {
     setEdges(toEdges(piece));
     setWaves(piece.waves ?? []);
     setTakes(piece.takes ?? []);
+    setBed(piece.bed ?? null);
     setSelectedWaveId(null);
     setBpm(piece.bpm);
     setSnap(piece.snap);
@@ -600,7 +645,7 @@ function Studio() {
     setTimeout(() => void fitView({ padding: 0.25, duration: 300 }), 50);
   };
 
-  const currentPiece = () => toPiece(nodes, edges, { bpm, snap, scaleId, rootHz, scales: importedScales }, waves, takes);
+  const currentPiece = () => toPiece(nodes, edges, { bpm, snap, scaleId, rootHz, scales: importedScales }, waves, takes, bed);
 
   // A shared link opens its piece. A first visit just shows it; otherwise ask,
   // since it replaces the work saved in this browser. The fragment is cleared
@@ -1249,6 +1294,11 @@ function Studio() {
             }}
             onRoot={setRootHz}
             onScale={setScaleId}
+            bed={bed}
+            bedPeaks={bedPeaks}
+            bedMissing={bedMissing}
+            onBed={setBed}
+            onLoadBed={(file) => void loadBed(file)}
           />
 
           {route === 'canvases' && (

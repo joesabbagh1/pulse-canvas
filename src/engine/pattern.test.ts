@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
+import { EXAMPLES } from '../examples';
+import { toNodes } from '../piece';
+import { regionAt } from '../regions';
 import { MAX_PATTERN_NOTES, compilePattern, soundNamed, starterPattern } from './pattern';
+import { waveCenter } from './wave';
 
 const sounds = (source: string, cycle = 0) => compilePattern(source).notes(cycle).map((n) => [Number(n.at.toFixed(4)), n.kind ?? n.degree]);
 
@@ -49,6 +53,31 @@ describe('patterns', () => {
     expect(starterPattern('kick')).toBe('0*2 ~ 0');
     expect(starterPattern('piano')).toBe('0*2 [~ 2] 4');
     expect(starterPattern('shaker')).toBe('0*2 ~ 0');
+  });
+
+  it('a stacked note can still be sounding when a later one starts', () => {
+    const notes = compilePattern('[0, ~ 3]').notes(0);
+    const first = notes.find((n) => n.degree === 0)!;
+    const next = notes.find((n) => n.degree === 3)!;
+    expect(first.at + first.span).toBeGreaterThan(next.at + 0.01);
+  });
+
+  it('a kit plays the drum each word names, and a caret accents that note', () => {
+    expect(compilePattern('kit bd sd hh').notes(0).map((n) => n.kind)).toEqual(['kick', 'snare', 'hat']);
+    expect(compilePattern('bd sd hh').notes(0).map((n) => n.kind)).toEqual([null, null, null]);
+    const line = compilePattern('octave -2 0 ^2 4');
+    expect(line.error).toBeNull();
+    expect(line.notes(0).map((n) => [n.degree, n.octave, n.accent ?? false])).toEqual([
+      [0, -2, false],
+      [2, -2, true],
+      [4, -2, false],
+    ]);
+    expect(line.source.slice(line.notes(0)[1].from, line.notes(0)[1].to)).toBe('^2');
+    expect(compilePattern('sound piano kit 0 bd').notes(0).map((n) => [n.kind, n.degree])).toEqual([
+      ['piano', 0],
+      ['kick', 0],
+    ]);
+    expect(compilePattern('kit').error).toMatch(/notes/);
   });
 
   it('knows the drum names Tidal uses, any instrument id, and nothing else', () => {
@@ -120,5 +149,33 @@ describe('patterns', () => {
       expect(pattern.error, source).toBeNull();
       for (let cycle = 0; cycle < 6; cycle++) expect(pattern.notes(cycle).length, source).toBeLessThanOrEqual(MAX_PATTERN_NOTES);
     }
+  });
+
+  it('the techno example is one bar of the club kit, an acid line and a pumping pad', () => {
+    const piece = EXAMPLES.find((example) => example.id === 'techno')!.piece;
+    expect(piece.bpm).toBe(132);
+    const kit = compilePattern(piece.blocks.find((block) => block.id === 'kit')!.pattern!);
+    expect(kit.error).toBeNull();
+    const kinds = kit.notes(0).map((note) => note.kind);
+    expect(kinds.filter((kind) => kind === 'kick-9')).toHaveLength(4);
+    expect(kinds.filter((kind) => kind === 'clap-9')).toHaveLength(2);
+    expect(kinds.filter((kind) => kind === 'open-9').length).toBeGreaterThan(0);
+    expect(kinds.filter((kind) => kind === 'hat-9').length).toBeGreaterThan(kinds.filter((kind) => kind === 'open-9').length);
+    const acid = compilePattern(piece.blocks.find((block) => block.id === 'acid')!.pattern!);
+    expect(acid.notes(0).filter((note) => note.accent).map((note) => note.degree)).toEqual([2, 4, 2]);
+    const nodes = toNodes(piece);
+    for (const [id, region] of [
+      ['kit', 'r-drums'],
+      ['acid', 'r-acid'],
+      ['pad', 'r-pad'],
+    ] as const) {
+      const block = piece.blocks.find((item) => item.id === id)!;
+      expect(regionAt(nodes, { x: block.x, y: block.y })?.id).toBe(region);
+    }
+    const sweep = piece.waves?.[0];
+    expect(sweep && regionAt(nodes, waveCenter(sweep.points))?.id).toBe('r-pad');
+    expect(piece.regions.find((region) => region.id === 'r-drums')?.fx?.pump ?? 0).toBe(0);
+    expect(piece.regions.find((region) => region.id === 'r-acid')?.fx?.pump).toBeGreaterThan(0);
+    expect(piece.regions.find((region) => region.id === 'r-pad')?.fx?.pump).toBeGreaterThan(0);
   });
 });

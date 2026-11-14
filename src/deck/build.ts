@@ -146,7 +146,7 @@ function blankMix(): DeckRegion['mix'] {
 }
 
 function blankFx(): DeckRegion['fx'] {
-  return { tone: 1, echo: 0, echoBeats: 0.75, reverb: 0.25 };
+  return { tone: 1, echo: 0, echoBeats: 0.75, reverb: 0.25, drive: 0, pump: 0, pumpBeats: 0.5 };
 }
 
 function blankGroove(): DeckRegion['groove'] {

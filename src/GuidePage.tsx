@@ -140,7 +140,8 @@ const SECTIONS: Section[] = [
         </p>
         <p>
           A <b>region</b> gives part of the canvas its own key and scale, mix (level, pan, mute), effects (tone, echo,
-          reverb), groove (swing on 8ths or 16ths, and humanize) and sample. Groove moves when notes sound, never when
+          reverb, drive, pump), groove (swing on 8ths or 16ths, and humanize) and sample. Drive is a soft clip. Pump
+          dips the level when a kick plays in another region, and brings it back over a fraction of a beat. Groove moves when notes sound, never when
           pulses arrive, so loops stay in time however much swing is on. A block belongs to the region its centre is in, so dragging it across a border retunes it.
           Adding a region wraps the selected blocks; drag its name tab to move it with everything inside.
         </p>
@@ -187,7 +188,11 @@ const SECTIONS: Section[] = [
           The instrument on the block is the one that plays. The text is{' '}
           <a href="https://strudel.cc/learn/mini-notation/">Strudel mini-notation</a> for the rhythm and the pitch:
           numbers are scale degrees above the block's own pitch, and a word such as <code>bd</code> is just a hit of
-          that same instrument. <code>[bd sd]</code> squeezes into one step, <code>hh*4</code> is four times as fast,{' '}
+          that same instrument, unless the line starts with <code>kit</code>. Then each name plays that drum, so one
+          box can be a whole kit: <code>kit [bd*4, [~ cp]*2, hh*8]</code>. <code>kick-9</code>, <code>hat-9</code>,{' '}
+          <code>open-9</code>, <code>clap-9</code> and <code>rim-9</code> are the club kit, and a closed{' '}
+          <code>hat-9</code> cuts an <code>open-9</code> short. A <code>^</code> before a note accents it, which opens
+          the acid bass filter. <code>[bd sd]</code> squeezes into one step, <code>hh*4</code> is four times as fast,{' '}
           <code>bd(3,8)</code> spreads 3 hits over 8 steps, and <code>&lt;0 2 4&gt;</code> plays one per pulse, in turn.
         </p>
         <p>
@@ -200,6 +205,24 @@ const SECTIONS: Section[] = [
           <code>every</code> and <code>chance</code>. The sounding word lights up, and a small wave of that box's notes
           draws along its bottom. The mix panel can also scroll a spectrogram. A shared piece still can't run its own
           drawing code or Hydra.
+        </p>
+      </>
+    ),
+  },
+  {
+    id: 'background',
+    title: 'Background',
+    body: (
+      <>
+        <p>
+          <b>Background</b>, under the canvas, plays an audio file behind the piece at the file's own speed. Load one and
+          it starts at beat 0. Its length in beats follows the tempo, because one second of the file is one second.
+        </p>
+        <p>
+          The cuts are a timeline: arrow keys move between them. On the lane, drag a cut to move it and drag its edges to
+          trim which part of the file plays. <b>Split</b> cuts the selected one at the playhead while playing, or in half
+          when stopped. Each cut has its own gain, fade in, fade out and mute. The file stays in this browser, the same
+          way a region's sample does, so a shared link leaves it behind.
         </p>
       </>
     ),

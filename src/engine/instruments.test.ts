@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CATEGORIES, INSTRUMENTS, instrumentById, instrumentsIn, isInstrumentId } from './instruments';
+import { CATEGORIES, INSTRUMENTS, instrumentById, instrumentsIn, isInstrumentId, isKick } from './instruments';
 
 const builtIns = ['tone', 'pluck', 'bass', 'jawharp', 'khuur', 'kick', 'snare', 'hat'] as const;
 
@@ -141,6 +141,12 @@ const catalogIds = [
   'helicopter',
   'applause',
   'gunshot',
+  'kick-9',
+  'hat-9',
+  'open-9',
+  'clap-9',
+  'rim-9',
+  'acid',
 ];
 
 describe('instrument catalog', () => {
@@ -182,5 +188,9 @@ describe('instrument catalog', () => {
     expect(instrumentsIn('brass').map((instrument) => instrument.id)).toContain('trumpet');
     expect(isInstrumentId('piano')).toBe(true);
     expect(isInstrumentId('laser')).toBe(false);
+    expect(isKick('kick')).toBe(true);
+    expect(isKick('kick-9')).toBe(true);
+    expect(isKick('hat-9')).toBe(false);
+    expect(isKick('acid')).toBe(false);
   });
 });

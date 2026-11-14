@@ -18,6 +18,9 @@ export interface DeckFx {
   echo: number;
   echoBeats: number;
   reverb: number;
+  drive: number;
+  pump: number;
+  pumpBeats: number;
 }
 
 export interface DeckGroove {
@@ -154,12 +157,14 @@ function regionLine(region: DeckRegion) {
   const fx = region.fx;
   const groove = region.groove;
   const echo = fx.echo <= 0 ? 'echo off' : `echo ${Math.round(fx.echo * 100)}% at ${formatBeats(fx.echoBeats, true)}`;
+  const drive = fx.drive > 0.001 ? ` · drive ${Math.round(fx.drive * 100)}%` : '';
+  const pump = fx.pump > 0.001 ? ` · pump ${Math.round(fx.pump * 100)}% over ${formatBeats(fx.pumpBeats, true)}` : '';
   const swing = groove.swing <= 0 ? 'swing off' : `swing ${Math.round(groove.swing * 100)}% on ${groove.swingGrid === 0.25 ? '16ths' : '8ths'}`;
   const human = groove.humanize > 0 ? ` · humanize ${Math.round(groove.humanize * 100)}%` : '';
   const key = region.key ? ` · key ${region.key.toUpperCase()}` : '';
   const tuning = region.scaleName ? ` · ${region.scaleName}${region.rootHz ? ` · ${rootName(region.rootHz)}` : ''}` : '';
   const box = ` · at ${place(region.x)}, ${place(region.y)} · ${place(region.w)} by ${place(region.h)}`;
-  return `${region.name} (${region.id})${tuning}${key} · ${mix.mute ? 'muted' : 'on'} · ${formatLevel(mix.level)} · ${formatPan(mix.pan)} · tone ${fx.tone >= 0.99 ? 'open' : `${Math.round(fx.tone * 100)}% open`} · ${echo} · reverb ${Math.round(fx.reverb * 100)}% · ${swing}${human}${box}`;
+  return `${region.name} (${region.id})${tuning}${key} · ${mix.mute ? 'muted' : 'on'} · ${formatLevel(mix.level)} · ${formatPan(mix.pan)} · tone ${fx.tone >= 0.99 ? 'open' : `${Math.round(fx.tone * 100)}% open`} · ${echo} · reverb ${Math.round(fx.reverb * 100)}%${drive}${pump} · ${swing}${human}${box}`;
 }
 
 function rootName(hz: number) {

@@ -565,6 +565,100 @@ const SONGS: Example[] = [
   },
 ];
 
+/** A 4-beat club loop: a machine kit, an acid line, and a pad that pumps against the kick. */
+function technoPiece(): Piece {
+  const cx = 120;
+  const bar = 4;
+  const width = bar * PX_PER_BEAT;
+  const left = cx - width / 2;
+  const start = (id: string, y: number) => ({ id, x: left, y, kind: 'start' as const, degree: 0, every: bar });
+  const box = (id: string, y: number, kind: 'kick-9' | 'acid' | 'pad-warm', pattern: string) => ({
+    id,
+    x: cx,
+    y,
+    kind,
+    degree: 0,
+    every: 0,
+    pattern,
+    beats: bar,
+  });
+  // Snap is off, and each start sits on its box's left edge, so the trigger is
+  // only a 16th of a beat and the bar stays on the grid.
+  const sweepY = 820;
+  const amp = 64;
+  const x0 = left;
+  return {
+    version: 1,
+    bpm: 132,
+    snap: false,
+    scaleId: MINOR.id,
+    rootHz: ROOT_HZ,
+    scales: [MINOR],
+    blocks: [
+      start('start-kit', -40),
+      box('kit', -40, 'kick-9', 'kit [kick-9*4, [~ clap-9]*2, [hat-9 hat-9 open-9 hat-9]*4]'),
+      start('start-acid', 280),
+      // Held a little longer than an eighth, so each note is still sounding when the next begins and the bass slides.
+      { ...box('acid', 280, 'acid', 'octave -2 0 0 ^2 0 ^4 3 ^2 0'), code: 'length 3/4' },
+      start('start-pad', 600),
+      box('pad', 600, 'pad-warm', '[0,2,4]'),
+    ],
+    links: [
+      { id: 'go-kit', from: 'start-kit', to: 'kit' },
+      { id: 'go-acid', from: 'start-acid', to: 'acid' },
+      { id: 'go-pad', from: 'start-pad', to: 'pad' },
+    ],
+    regions: [
+      {
+        id: 'r-drums',
+        name: 'Drums',
+        key: '1',
+        scaleId: MINOR.id,
+        rootHz: ROOT_HZ,
+        x: cx - (width + 160) / 2,
+        y: -160,
+        w: width + 160,
+        h: 240,
+        mix: { level: 0, pan: 0, mute: false },
+        fx: { tone: 0.92, reverb: 0.04, drive: 0.4, pump: 0 },
+      },
+      {
+        id: 'r-acid',
+        name: 'Acid',
+        key: '2',
+        scaleId: MINOR.id,
+        rootHz: ROOT_HZ,
+        x: cx - (width + 160) / 2,
+        y: 160,
+        w: width + 160,
+        h: 240,
+        mix: { level: -1, pan: 0, mute: false },
+        fx: { tone: 0.72, echo: 0.08, echoBeats: 0.5, reverb: 0.12, drive: 0.2, pump: 0.7, pumpBeats: 0.5 },
+      },
+      {
+        id: 'r-pad',
+        name: 'Pad',
+        key: '3',
+        scaleId: MINOR.id,
+        rootHz: ROOT_HZ,
+        x: cx - (width + 160) / 2,
+        y: 500,
+        w: width + 160,
+        h: 420,
+        mix: { level: -7, pan: 0, mute: false },
+        fx: { tone: 0.5, echo: 0.2, echoBeats: 0.75, reverb: 0.35, pump: 0.82, pumpBeats: 0.5 },
+      },
+    ],
+    waves: [
+      {
+        id: 'sweep',
+        role: 'motion',
+        points: [0, 0.25, 0.5, 0.75, 1].map((t) => ({ x: x0 + t * width, y: sweepY + amp * (1 - 2 * t) })),
+      },
+    ],
+  };
+}
+
 export const EXAMPLES: Example[] = [
   {
     id: 'tour',
@@ -574,6 +668,15 @@ export const EXAMPLES: Example[] = [
       'The patch you first open. A five-note melody folds around a rectangle and phases against a 2-beat drum line: hats along the line, a snare branching off the kick and rejoining on the backbeat. The melody sits in a Maqam Rast region, panned left with its own echo, so it plays quarter tones while the bass — its own voice — stays pentatonic. Code ghosts a hi-hat, walks the bass and pushes every 4th bass note late.',
     scales: ['Major pentatonic', 'Maqam Rast (24-TET approx.)'],
     piece: demoPiece(),
+  },
+  {
+    id: 'techno',
+    tradition: 'Club',
+    title: 'Four on the floor',
+    description:
+      'A bar of techno at 132. One box is the drum machine: a machine kick on every beat, a clap on the backbeat, and hats whose open one is cut short by the next closed hat. The acid line, an octave down in natural minor, is held long enough to slide from note to note, and the Eb and the G are accented so the filter opens there. The pad is a minor chord that pumps against the kick, and a cutoff drawing opens it across the bar. Drive is on the drums. Keys 1, 2 and 3 mute the three regions. Snap is off so each bar\'s trigger sits on the beat.',
+    scales: [MINOR.name],
+    piece: technoPiece(),
   },
   {
     id: 'western',

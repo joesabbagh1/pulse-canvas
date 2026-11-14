@@ -214,6 +214,27 @@ function mix(input: DeckInput, command: Record<string, unknown>): DeckPlan {
     patch.fx = { ...patch.fx, reverb: stepped };
     notes.push(`reverb ${Math.round(stepped * 100)}%`);
   }
+  if (command.drive !== undefined) {
+    const drive = numberIn(command.drive, 'Drive', 0, 1);
+    if (typeof drive === 'string') return { error: drive };
+    const stepped = roundTo(drive, 0.01);
+    patch.fx = { ...patch.fx, drive: stepped };
+    notes.push(stepped <= 0 ? 'drive off' : `drive ${Math.round(stepped * 100)}%`);
+  }
+  if (command.pump !== undefined) {
+    const pump = numberIn(command.pump, 'Pump', 0, 1);
+    if (typeof pump === 'string') return { error: pump };
+    const stepped = roundTo(pump, 0.01);
+    patch.fx = { ...patch.fx, pump: stepped };
+    notes.push(stepped <= 0 ? 'pump off' : `pump ${Math.round(stepped * 100)}%`);
+  }
+  if (command.pumpBeats !== undefined) {
+    const beats = numberIn(command.pumpBeats, 'Pump time', 0.25, 2);
+    if (typeof beats === 'string') return { error: beats };
+    const stepped = roundTo(beats, 0.25);
+    patch.fx = { ...patch.fx, pumpBeats: stepped };
+    notes.push(`pump time ${beatCount(stepped)}`);
+  }
   if (command.swing !== undefined) {
     const swing = numberIn(command.swing, 'Swing', 0, 1);
     if (typeof swing === 'string') return { error: swing };
@@ -234,7 +255,7 @@ function mix(input: DeckInput, command: Record<string, unknown>): DeckPlan {
     patch.groove = { ...patch.groove, humanize: stepped };
     notes.push(stepped <= 0 ? 'humanize off' : `humanize ${Math.round(stepped * 100)}%`);
   }
-  if (!notes.length) return { error: 'Say what to change: mute, level, pan, tone, echo, reverb, swing, or humanize.' };
+  if (!notes.length) return { error: 'Say what to change: mute, level, pan, tone, echo, reverb, drive, pump, swing, or humanize.' };
 
   const next: DeckInput = {
     ...input,

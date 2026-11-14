@@ -7,6 +7,7 @@ import type { SampleRef } from './engine/samples';
 import type { BlockKind, GraphBlock, GraphLink } from './engine/scheduler';
 import { DEFAULT_SCALE_ID, ROOT_HZ, scaleById, type Scale, type Tuning } from './engine/tuning';
 import type { Wave } from './engine/wave';
+import type { Bed } from './bed';
 import type { Take } from './takes';
 import { readPiece } from './readPiece';
 import { REGION_Z, regionAt } from './regions';
@@ -86,6 +87,11 @@ export interface Piece extends Settings {
    * before takes existed; readers fill in `[]`.
    */
   takes?: Take[];
+  /**
+   * A file playing behind the piece, cut into slices on the beat. Absent when
+   * the piece has none. The file itself lives in this browser's storage.
+   */
+  bed?: Bed;
 }
 
 const STORAGE_KEY = 'pulse-canvas:piece:v1';
@@ -165,6 +171,7 @@ export function toPiece(
   settings: Settings & { takes?: Take[] },
   waves: Wave[] = [],
   takes?: Take[],
+  bed: Bed | null = null,
 ): Piece {
   return {
     version: 1,
@@ -192,6 +199,7 @@ export function toPiece(
     }),
     waves,
     takes: takes ?? settings.takes ?? [],
+    ...(bed ? { bed } : {}),
   };
 }
 

@@ -1,3 +1,4 @@
+import { MAX_BED_CLIPS, MAX_BED_SECONDS, MIN_CLIP_SECONDS, wholeClip, type Bed, type BedClip } from './bed';
 import { DEFAULT_GROOVE, type Groove } from './engine/groove';
 import { DEFAULT_FX, DEFAULT_MIX, MIN_LEVEL, type Fx, type Mix } from './engine/mixer';
 import type { SampleRef } from './engine/samples';
@@ -67,6 +68,9 @@ function readFx(v: unknown): Fx {
     echo: num(f.echo, 0, 1, DEFAULT_FX.echo),
     echoBeats: num(f.echoBeats, 1 / 16, 4, DEFAULT_FX.echoBeats),
     reverb: num(f.reverb, 0, 1, DEFAULT_FX.reverb),
+    drive: num(f.drive, 0, 1, DEFAULT_FX.drive),
+    pump: num(f.pump, 0, 1, DEFAULT_FX.pump),
+    pumpBeats: num(f.pumpBeats, 1 / 16, 4, DEFAULT_FX.pumpBeats),
   };
 }
 
@@ -85,6 +89,36 @@ const readKey = (v: unknown) => (typeof v === 'string' && /^[a-z0-9]$/.test(v) ?
 function readSample(v: unknown): SampleRef | undefined {
   if (!isObject(v) || typeof v.id !== 'string' || !/^smp-[0-9a-f]{1,64}$/.test(v.id)) return undefined;
   return { id: v.id, name: text(v.name) || 'sample' };
+}
+
+function readClip(v: unknown, fileDuration: number): BedClip | null {
+  if (!isObject(v) || !id(v.id)) return null;
+  const offset = num(v.offset, 0, fileDuration, 0);
+  const seconds = Math.min(num(v.seconds, MIN_CLIP_SECONDS, Math.max(MIN_CLIP_SECONDS, fileDuration - offset), 0), Math.max(0, fileDuration - offset));
+  if (!(seconds >= MIN_CLIP_SECONDS)) return null;
+  const fadeIn = Math.min(num(v.fadeIn, 0, seconds, 0), seconds);
+  return {
+    id: v.id as string,
+    beat: num(v.beat, 0, 100000, 0),
+    offset,
+    seconds,
+    gain: num(v.gain, 0, 1, 1),
+    fadeIn,
+    fadeOut: Math.min(num(v.fadeOut, 0, seconds, 0), Math.max(0, seconds - fadeIn)),
+    mute: v.mute === true,
+  };
+}
+
+function readBed(v: unknown): Bed | undefined {
+  if (!isObject(v)) return undefined;
+  const sample = readSample(v.sample);
+  if (!sample) return undefined;
+  const duration = num(v.duration, MIN_CLIP_SECONDS, MAX_BED_SECONDS, 0);
+  if (!(duration >= MIN_CLIP_SECONDS)) return undefined;
+  const clips = Array.isArray(v.clips)
+    ? unique(list(v.clips, MAX_BED_CLIPS).map((clip) => readClip(clip, duration)))
+    : [wholeClip(duration, 'bed-1')];
+  return { sample, duration, level: num(v.level, 0, 1, 0.8), clips };
 }
 
 function readTakeNote(v: unknown): TakeNote | null {
@@ -201,6 +235,7 @@ export function readPiece(raw: unknown): Piece {
   );
 
   const takes = unique(list(raw.takes, MAX_TAKES).map(readTake));
+  const bed = readBed(raw.bed);
 
   return {
     version: 1,
@@ -214,5 +249,6 @@ export function readPiece(raw: unknown): Piece {
     regions,
     waves,
     takes,
+    ...(bed ? { bed } : {}),
   };
 }

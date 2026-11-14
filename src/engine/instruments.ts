@@ -1,6 +1,7 @@
-// General MIDI's 128 melodic programs, a small drum kit, and the eight voices
-// already in the engine. `voice` chooses the synth. A pitched drum still carries
-// `tune`: the player uses the note, and `tune` is only the fallback.
+// General MIDI's 128 melodic programs, a small drum kit, the club kit, an acid
+// bass, and the eight voices already in the engine. `voice` chooses the synth.
+// A pitched drum still carries `tune`: the player uses the note, and `tune` is
+// only the fallback.
 
 export const CATEGORIES = [
   { id: 'keys', label: 'Keyboards', hue: 45 },
@@ -83,6 +84,16 @@ export type Instrument = Common & (
       hit: DrumHit;
       decay: number;
       tune: number;
+      gain: number;
+    }
+  | {
+      voice: 'machine';
+      hit: 'kick' | 'hat' | 'open' | 'clap' | 'rim';
+      gain: number;
+    }
+  | {
+      voice: 'acid';
+      wave: 'sawtooth' | 'square';
       gain: number;
     }
 );
@@ -1667,6 +1678,66 @@ export const INSTRUMENTS = [
     gain: -7,
   },
   {
+    id: 'kick-9',
+    name: 'Machine kick',
+    short: 'kick 9',
+    category: 'percussion',
+    hint: 'a club kick: a sine that falls, a click, then a soft clip. Pitch is the body.',
+    pitched: true,
+    steps: false,
+    voice: 'machine',
+    hit: 'kick',
+    gain: -4,
+  },
+  {
+    id: 'hat-9',
+    name: 'Machine hat',
+    short: 'hat 9',
+    category: 'percussion',
+    hint: 'a closed hat made of a few mistuned squares. It cuts the open hat short.',
+    pitched: false,
+    steps: false,
+    voice: 'machine',
+    hit: 'hat',
+    gain: -14,
+  },
+  {
+    id: 'open-9',
+    name: 'Machine open hat',
+    short: 'open 9',
+    category: 'percussion',
+    hint: 'an open hat. The next closed machine hat cuts it off.',
+    pitched: false,
+    steps: false,
+    voice: 'machine',
+    hit: 'open',
+    gain: -11,
+  },
+  {
+    id: 'clap-9',
+    name: 'Machine clap',
+    short: 'clap 9',
+    category: 'percussion',
+    hint: 'a clap: a few noise bursts, then a short tail.',
+    pitched: false,
+    steps: false,
+    voice: 'machine',
+    hit: 'clap',
+    gain: -8,
+  },
+  {
+    id: 'rim-9',
+    name: 'Machine rim',
+    short: 'rim 9',
+    category: 'percussion',
+    hint: 'a short metallic rim shot.',
+    pitched: false,
+    steps: false,
+    voice: 'machine',
+    hit: 'rim',
+    gain: -10,
+  },
+  {
     id: 'choir',
     name: 'Choir aahs',
     short: 'aahs',
@@ -1789,6 +1860,18 @@ export const INSTRUMENTS = [
     release: 0.09,
     cutoff: 740,
     gain: -6,
+  },
+  {
+    id: 'acid',
+    name: 'Acid bass',
+    short: 'acid',
+    category: 'synths',
+    hint: 'a resonant bass. An accent opens the filter, and a note that starts while the last is still held slides.',
+    pitched: true,
+    steps: true,
+    voice: 'acid',
+    wave: 'sawtooth',
+    gain: -7,
   },
   {
     id: 'synth-strings',
@@ -2379,4 +2462,12 @@ export function instrumentsIn(category: CategoryId): readonly Instrument[] {
 
 export function isInstrumentId(id: string): id is InstrumentId {
   return byId.has(id);
+}
+
+/** A kick that other regions can pump against: the plain kick, or the machine kick. */
+export function isKick(kind: string): boolean {
+  const instrument = instrumentById(kind);
+  if (!instrument) return false;
+  if (instrument.voice === 'kick') return true;
+  return instrument.voice === 'machine' && instrument.hit === 'kick';
 }

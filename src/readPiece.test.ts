@@ -11,7 +11,7 @@ const tone = (id: string, extra = {}) => ({ id, x: 0, y: 0, kind: 'tone', degree
 describe('readPiece', () => {
   it('passes every example through as the canvas would save it', () => {
     for (const { piece } of EXAMPLES) {
-      const saved = toPiece(toNodes(piece), toEdges(piece), piece);
+      const saved = toPiece(toNodes(piece), toEdges(piece), piece, piece.waves ?? []);
       expect(readPiece(JSON.parse(JSON.stringify(piece)))).toEqual(saved);
     }
   });
@@ -76,6 +76,22 @@ describe('readPiece', () => {
     expect(piece.scales).toEqual([{ id: 's', name: 'S', cents: [0, 700], period: 1200 }]);
     expect(piece.regions[0]).toMatchObject({ mix: { level: 6, pan: -1, mute: false }, fx: { tone: 1, echo: 0 } });
     expect(piece.regions[0].sample).toBeUndefined();
+    const bed = readPiece({
+      ...base,
+      bed: {
+        sample: { id: 'smp-abc', name: 'loop.wav' },
+        duration: 4,
+        level: 9,
+        clips: [
+          { id: 'a', beat: -3, offset: 1, seconds: 100, gain: 2, fadeIn: 9, fadeOut: 0 },
+          { id: 'a', beat: 1, offset: 0, seconds: 1, gain: 1 },
+          { id: 'bad' },
+        ],
+      },
+    }).bed;
+    expect(bed?.level).toBe(1);
+    expect(bed?.clips).toEqual([{ id: 'a', beat: 0, offset: 1, seconds: 3, gain: 1, fadeIn: 3, fadeOut: 0, mute: false }]);
+    expect(readPiece({ ...base, bed: { sample: { id: 'nope', name: 'x' } } }).bed).toBeUndefined();
     expect(readPiece({ ...base, blocks: Array.from({ length: 5000 }, (_, i) => tone(`b${i}`)) }).blocks).toHaveLength(2000);
   });
 

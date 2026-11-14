@@ -1,6 +1,7 @@
 import * as Tone from 'tone';
 import type { BeatClock } from './clock';
 import type { Groove } from './groove';
+import { isKick } from './instruments';
 import type { GraphBlock, NoteShape } from './scheduler';
 import type { NoteGate } from './holds';
 import { Voices } from './voices';
@@ -10,10 +11,12 @@ import { EMPTY_BUS_WAVES, motionSum, movedTone, type BusWaves, type MotionCurve 
 // its own channel. Blocks outside every region play on the canvas bus. All
 // buses meet at one limiter.
 //
-//   voices → filter → echo → reverb → channel (level, pan, mute) → limiter
+//   voices → filter → drive → echo → reverb → pump → channel (level, pan, mute) → limiter
 //
 // A region's cutoff motions own the filter while they exist. The tone slider
 // stays the centre they bend around; without a motion, the slider sets it.
+// Pump is a dip in level when a kick plays on some other bus, back up over a
+// few beats. The kick's own bus is left alone, so the kick itself stays loud.
 
 export interface Mix {
   /** Decibels. */
@@ -32,6 +35,12 @@ export interface Fx {
   echoBeats: number;
   /** Reverb wet level, 0 to 1. */
   reverb: number;
+  /** 0 (clean) to 1 (a hard clip) on this bus. */
+  drive: number;
+  /** 0 (off) to 1 (a deep dip) when a kick plays somewhere else. */
+  pump: number;
+  /** How long that dip takes to come back, in beats. */
+  pumpBeats: number;
 }
 
 export interface BusSettings {
@@ -44,7 +53,14 @@ export interface BusSettings {
 }
 
 export const DEFAULT_MIX: Mix = { level: 0, pan: 0, mute: false };
-export const DEFAULT_FX: Fx = { tone: 1, echo: 0, echoBeats: 0.75, reverb: 0.25 };
+export const DEFAULT_FX: Fx = { tone: 1, echo: 0, echoBeats: 0.75, reverb: 0.25, drive: 0, pump: 0, pumpBeats: 0.5 };
+
+/** The linear gain a pump amount ducks to. 1 is no dip; 0 would be silence, and full pump stops just short of it. */
+export function pumpGain(amount: number): number {
+  const depth = Math.min(1, Math.max(0, amount));
+  if (!(depth > 0)) return 1;
+  return Math.max(0.03, 1 - depth * 0.92);
+}
 export const MIN_LEVEL = -40;
 
 /** The filter cutoff for a tone setting: 200 Hz to 20 kHz. */
@@ -60,6 +76,8 @@ class Bus {
   private channel: Tone.Channel;
   private reverb: Tone.Reverb;
   private echo: Tone.FeedbackDelay;
+  private drive: Tone.Distortion;
+  private pumpGain: Tone.Gain;
   private filter: Tone.Filter;
   private motions: MotionCurve[] = [];
   /** The filter is being driven by motions, so the tone slider must leave it alone. */
@@ -74,9 +92,11 @@ class Bus {
 
   constructor(output: Tone.InputNode) {
     this.channel = new Tone.Channel().connect(output);
-    this.reverb = new Tone.Reverb({ decay: 3, wet: 0 }).connect(this.channel);
+    this.pumpGain = new Tone.Gain(1).connect(this.channel);
+    this.reverb = new Tone.Reverb({ decay: 3, wet: 0 }).connect(this.pumpGain);
     this.echo = new Tone.FeedbackDelay({ delayTime: 0.4, feedback: 0.35, wet: 0 }).connect(this.reverb);
-    this.filter = new Tone.Filter({ type: 'lowpass', frequency: toneHz(1), rolloff: -12 }).connect(this.echo);
+    this.drive = new Tone.Distortion({ distortion: 0, wet: 0, oversample: '2x' }).connect(this.echo);
+    this.filter = new Tone.Filter({ type: 'lowpass', frequency: toneHz(1), rolloff: -12 }).connect(this.drive);
     this.into = new Tone.Gain(1).connect(this.filter);
     this.voices = new Voices(this.into);
   }
@@ -91,6 +111,29 @@ class Bus {
     this.echo.wet.rampTo(fx.echo, GLIDE);
     this.echo.delayTime.rampTo(fx.echoBeats * secondsPerBeat, GLIDE);
     this.reverb.wet.rampTo(fx.reverb, GLIDE);
+    const drive = Math.min(1, Math.max(0, fx.drive));
+    this.drive.distortion = drive * 0.7;
+    this.drive.wet.rampTo(drive > 0 ? 1 : 0, GLIDE);
+    if (!(fx.pump > 0)) {
+      this.pumpGain.gain.cancelScheduledValues(Tone.now());
+      this.pumpGain.gain.rampTo(1, GLIDE);
+    }
+  }
+
+  /**
+   * Dip for a kick that played somewhere else. `velocity` scales the dip, so a
+   * soft kick pumps less. Overlapping kicks restart the dip from now.
+   */
+  duck(time: number, secondsPerBeat: number, velocity = 1) {
+    const amount = (this.settings?.fx.pump ?? 0) * Math.min(1, Math.max(0, velocity));
+    const floor = pumpGain(amount);
+    if (floor >= 0.999) return;
+    const release = Math.max(0.04, (this.settings?.fx.pumpBeats ?? DEFAULT_FX.pumpBeats) * secondsPerBeat);
+    const gain = this.pumpGain.gain;
+    gain.cancelScheduledValues(time);
+    gain.setValueAtTime(Math.max(0.0001, gain.getValueAtTime(time)), time);
+    gain.linearRampToValueAtTime(floor, time + 0.01);
+    gain.exponentialRampToValueAtTime(1, time + Math.max(0.03, release));
   }
 
   /** Takes a new cycle and new motions. Marks the filter curve stale. */
@@ -156,8 +199,10 @@ class Bus {
     this.voices.dispose();
     this.into.dispose();
     this.filter.dispose();
+    this.drive.dispose();
     this.echo.dispose();
     this.reverb.dispose();
+    this.pumpGain.dispose();
     this.channel.dispose();
   }
 }
@@ -167,6 +212,8 @@ const CANVAS = '';
 export class Mixer {
   /** Everything heard, after the limiter; recording taps it here. */
   readonly output = new Tone.Limiter(-1).toDestination();
+  /** The background file, before the limiter, not through a region's effects. */
+  readonly bed = new Tone.Gain(1).connect(this.output);
   /** Side taps of the mix. They are not in the path to the speakers. */
   private wave = new Tone.Analyser('waveform', 1024);
   private bands = new Tone.Analyser('fft', 512);
@@ -233,12 +280,22 @@ export class Mixer {
   }
 
   play(block: GraphBlock, time: number, secondsPerBeat: number, shape?: NoteShape) {
+    const velocity = shape?.velocity ?? 1;
+    if (velocity > 0 && isKick(block.kind)) this.pumpFrom(block.bus ?? CANVAS, time, secondsPerBeat, velocity);
     const bus = (block.bus && this.buses.get(block.bus)) || this.canvas;
     const sampleId = bus.settings?.sample;
     const tone = block.tone;
     const voices =
       block.pattern !== undefined && tone !== undefined && tone < 0.999 ? this.lane(block.id, block.bus ?? CANVAS, bus, tone).voices : bus.voices;
     voices.play(block, time, secondsPerBeat, sampleId ? this.samples.get(sampleId) : undefined, shape);
+  }
+
+  /** Every pumping bus except the one the kick itself is on. */
+  private pumpFrom(sourceBus: string, time: number, secondsPerBeat: number, velocity: number) {
+    for (const [id, bus] of this.buses) {
+      if (id === sourceBus) continue;
+      bus.duck(time, secondsPerBeat, velocity);
+    }
   }
 
   /** Forget filters for pattern blocks that are gone. */

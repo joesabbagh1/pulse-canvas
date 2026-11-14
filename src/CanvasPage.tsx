@@ -12,6 +12,8 @@ import {
   type OnNodesChange,
 } from '@xyflow/react';
 import type { MouseEvent as ReactMouseEvent, RefObject } from 'react';
+import type { Bed } from './bed';
+import { BedLane } from './BedLane';
 import { BlockNodeView } from './canvas/BlockNode';
 import { AddDock, ZoomControls } from './canvas/CanvasControls';
 import { LinkEdgeView, LinkPreview } from './canvas/LinkEdge';
@@ -100,6 +102,11 @@ interface Props {
   onDelete: () => void;
   onRoot: (hz: number) => void;
   onScale: (scaleId: string) => void;
+  bed: Bed | null;
+  bedPeaks: Float32Array | null;
+  bedMissing: boolean;
+  onBed: (bed: Bed | null) => void;
+  onLoadBed: (file: File) => void;
 }
 
 /**
@@ -115,10 +122,10 @@ export function CanvasPage(props: Props) {
     <>
       <div
         className={`stage${waves ? ' is-waves' : ''}${waves && props.pencil ? ' is-drawing' : ''}${props.parked ? ' is-parked' : ''}`}
-        ref={props.wrapperRef}
         aria-hidden={props.parked}
         inert={props.parked}
       >
+        <div className="stage-flow" ref={props.wrapperRef}>
         <ReactFlow
           nodes={props.nodes}
           edges={props.edges}
@@ -188,6 +195,20 @@ export function CanvasPage(props: Props) {
             </Panel>
           )}
         </ReactFlow>
+        </div>
+        {!props.parked && (
+          <BedLane
+            bed={props.bed}
+            peaks={props.bedPeaks}
+            missing={props.bedMissing}
+            bpm={props.bpm}
+            snap={props.snap}
+            playing={props.playing}
+            engine={props.engine}
+            onChange={props.onBed}
+            onLoad={props.onLoadBed}
+          />
+        )}
       </div>
 
       <aside className={`sidebar${props.parked ? ' is-parked' : ''}`} aria-hidden={props.parked} inert={props.parked} aria-label={open ? 'Selection' : 'Piece'}>

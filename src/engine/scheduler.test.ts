@@ -429,6 +429,27 @@ describe('Scheduler', () => {
       expect(degrees('every 2: rev', 2, 5)).toEqual([0, 1, 2, 3, 3, 2, 1, 0]);
     });
 
+    it('a kit plays each named drum, and an accent is passed on', () => {
+      const { s, notes } = patch(box('kit bd hh cp'));
+      const accents: boolean[] = [];
+      const marked = new Scheduler((_b, _beat, _shift, shape) => {
+        if (_b.id !== 'p') return;
+        accents.push(shape.accent === true);
+      });
+      s.start(0);
+      s.advance(5);
+      expect(notes.filter(([id]) => id !== 'b').map(([kind]) => kind)).toEqual(['kick', 'hat', 'clap']);
+
+      marked.setGraph(
+        [block('s', -2 * B, 0, 'start'), { ...box('0 ^2'), id: 'p' }, block('b', 2 * B, 0)],
+        [link('s', 'p'), link('p', 'b')],
+        0,
+      );
+      marked.start(0);
+      marked.advance(5);
+      expect(accents).toEqual([false, true]);
+    });
+
     it('plays the block\'s instrument, whatever the pattern names', () => {
       const { s, notes } = patch({ ...box('bd sd hh'), kind: 'piano', degree: 5 });
       s.start(0);

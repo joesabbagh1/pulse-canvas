@@ -155,7 +155,7 @@ server.registerTool(
   {
     title: 'Ride a region mix',
     description:
-      'Set a region\'s mixer channel. Pass its id, name, or performance key. Omit any field you are not changing. level is decibels (-40 is silent, 0 is unity, up to +6). pan is -1 (left) to 1 (right). tone is a low-pass, 0 (dark) to 1 (open). echo and reverb are wet amounts, 0 to 1. echoBeats is the echo time in beats (0.25 to 4). swing is 0 (straight) to 1 (triplet), on 8ths or 16ths. humanize is 0 to 1. Swing and humanize move when notes sound, not when pulses arrive, so loops stay in time.',
+      'Set a region\'s mixer channel. Pass its id, name, or performance key. Omit any field you are not changing. level is decibels (-40 is silent, 0 is unity, up to +6). pan is -1 (left) to 1 (right). tone is a low-pass, 0 (dark) to 1 (open). echo and reverb are wet amounts, 0 to 1. echoBeats is the echo time in beats (0.25 to 4). drive is a soft clip, 0 to 1. pump is how far the level dips when a kick plays in another region, 0 to 1, coming back over pumpBeats beats (0.25 to 2). The kick\'s own region is not dipped. swing is 0 (straight) to 1 (triplet), on 8ths or 16ths. humanize is 0 to 1. Swing and humanize move when notes sound, not when pulses arrive, so loops stay in time.',
     inputSchema: {
       region: z.string().describe('Region id, name, or performance key.'),
       mute: z.boolean().optional().describe('True mutes the region, false unmutes it.'),
@@ -165,6 +165,9 @@ server.registerTool(
       echo: z.number().optional().describe('Echo wet amount, 0 to 1.'),
       echoBeats: z.number().optional().describe('Echo time in beats, 0.25 to 4.'),
       reverb: z.number().optional().describe('Reverb wet amount, 0 to 1.'),
+      drive: z.number().optional().describe('Soft clip, 0 clean to 1.'),
+      pump: z.number().optional().describe('How far the level dips when a kick plays elsewhere, 0 to 1.'),
+      pumpBeats: z.number().optional().describe('How many beats the dip takes to come back, 0.25 to 2.'),
       swing: z.number().optional().describe('Swing amount, 0 straight to 1 triplet.'),
       swingGrid: z.enum(['8ths', '16ths']).optional().describe('Which notes swing.'),
       humanize: z.number().optional().describe('Random timing and loudness, 0 to 1.'),

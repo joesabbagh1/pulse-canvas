@@ -1,4 +1,7 @@
 import * as Tone from 'tone';
+import type { Bed } from '../bed';
+import { waveformPeaks } from '../bed';
+import { BedPlayer } from './bedPlayer';
 import { BeatClock } from './clock';
 import { grooveNote } from './groove';
 import { HoldBook } from './holds';
@@ -47,6 +50,10 @@ export class Engine {
   private waveProgram = new Map<string, BusWaves>();
   private waveKey = '';
   private holds = new HoldBook();
+  private bedSpec: Bed | null = null;
+  private bedPlayer: BedPlayer | null = null;
+  /** Decoded before the audio context is allowed to run. Play attaches it. */
+  private pendingBedBuffer: AudioBuffer | null = null;
 
   get playing() {
     return this.scheduler.playing;
@@ -85,6 +92,7 @@ export class Engine {
       this.clock.reset(this.audioNow() + 0.1);
       this.scheduler.start(0);
       this.interval = Tone.getContext().setInterval(() => this.tick(), TICK);
+      this.bedPlayer?.stop(this.audioNow());
       this.tick();
     } finally {
       this.starting = false;
@@ -98,6 +106,7 @@ export class Engine {
     this.flashes = [];
     const now = this.audioNow();
     this.mixer?.silence(now);
+    this.bedPlayer?.stop(now);
     this.holds.dropAll();
     // Leave the filter where the motion starts, so the next play matches the dot on the left.
     this.mixer?.park(this.buses, now);
@@ -115,7 +124,11 @@ export class Engine {
     }
     for (const note of compilePattern(block.pattern ?? '').notes(0)) {
       const hit = patternHit(block, note, span);
-      mixer.play(hit.block, start + note.at * span * beat, beat, { velocity: 1, length: hit.length });
+      mixer.play(hit.block, start + note.at * span * beat, beat, {
+        velocity: 1,
+        length: hit.length,
+        ...(note.accent ? { accent: true } : {}),
+      });
     }
   }
 
@@ -195,6 +208,55 @@ export class Engine {
     if (!this.mixer) return;
     this.mixer.sync(this.buses, this.clock.secondsPerBeat);
     this.applyWaves();
+    if (this.playing) this.restartBed();
+  }
+
+  /** The background file. Null clears it. An edit while playing reschedules the slices. */
+  setBed(bed: Bed | null) {
+    const sameSlices =
+      this.bedSpec?.sample.id === bed?.sample.id && JSON.stringify(this.bedSpec?.clips) === JSON.stringify(bed?.clips);
+    this.bedSpec = bed;
+    if (this.mixer) this.mixer.bed.gain.rampTo(bed?.level ?? 1, 0.03);
+    // A level change can ride the gain. Moving or cutting a slice has to be scheduled again.
+    if (this.playing && !sameSlices) this.restartBed();
+  }
+
+  /**
+   * Decodes the file, if this browser still has it, and draws its peaks.
+   * Null when the file is gone or isn't audio.
+   */
+  async warmBed(id: string): Promise<{ duration: number; peaks: Float32Array } | null> {
+    try {
+      if (!this.samples.has(id)) {
+        const bytes = await loadSampleBytes(id);
+        if (!bytes) return null;
+        const audio = await Tone.getContext().decodeAudioData(bytes.slice(0));
+        this.samples.set(id, new Tone.ToneAudioBuffer(audio));
+      }
+    } catch {
+      this.bedPlayer?.setBuffer(null);
+      this.pendingBedBuffer = null;
+      return null;
+    }
+    const audio = this.samples.get(id)?.get();
+    if (!audio || !(audio.duration > 0)) return null;
+    if (this.mixer) {
+      this.player().setBuffer(audio);
+      if (this.playing) this.restartBed();
+    } else this.pendingBedBuffer = audio;
+    return { duration: audio.duration, peaks: waveformPeaks(audio.getChannelData(0), 4096) };
+  }
+
+  private player() {
+    if (!this.bedPlayer) this.bedPlayer = new BedPlayer(this.mixer!.bed.input);
+    return this.bedPlayer;
+  }
+
+  private restartBed() {
+    if (!this.mixer) return;
+    const now = this.audioNow();
+    this.player().stop(now);
+    this.player().advance(this.bedSpec, this.clock, now, now + LOOKAHEAD);
   }
 
   fire(blockId: string) {
@@ -232,6 +294,11 @@ export class Engine {
     if (!this.mixer) {
       this.mixer = new Mixer(this.samples);
       this.mixer.sync(this.buses, this.clock.secondsPerBeat);
+      if (this.pendingBedBuffer) {
+        this.player().setBuffer(this.pendingBedBuffer);
+        this.pendingBedBuffer = null;
+      }
+      this.mixer.bed.gain.value = this.bedSpec?.level ?? 1;
     }
     await this.loadSamples();
     this.applyWaves();
@@ -259,6 +326,7 @@ export class Engine {
     this.scheduler.prune(this.clock.beatAt(now) - 1);
     this.flashes = this.flashes.filter((f) => f.time > now - 1);
     this.mixer?.advance(this.clock, this.buses, now, now + LOOKAHEAD);
+    this.bedPlayer?.advance(this.bedSpec, this.clock, now, now + LOOKAHEAD);
   }
 
   /** `shift` is the pulse's transposition, in scale degrees. */

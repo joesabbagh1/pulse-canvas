@@ -93,8 +93,10 @@ Select a region (click its name tab) to set, for everything inside it:
   *Humanize* (small random shifts in timing and loudness). It moves when notes
   sound, never when pulses arrive, so loops never drift out of time.
 - **Effects**: *Tone* (a low-pass filter, from dark to open), *Echo* (with its
-  time in beats, so it follows the tempo) and *Reverb*. Double-click a slider to
-  reset it.
+  time in beats, so it follows the tempo), *Reverb*, *Drive* (a soft clip) and
+  *Pump*. Pump dips the level when a kick plays in another region and brings it
+  back over a fraction of a beat, so a pad can breathe with the kick. The kick's
+  own region stays level. Double-click a slider to reset it.
 - **Sample**: load an audio file, and the region's tones play it instead of the
   synth, pitched by scale degree as if it were recorded at C4. Every other
   instrument keeps its own voice. Samples are kept
@@ -134,14 +136,30 @@ The instrument on the block is the one that plays. The text is
 Strudel and never run as JavaScript. Numbers are scale degrees above the
 block's pitch, so `0 2 4` follows the region's scale on that instrument. A
 word (`bd`, `sd`, `hh`, or an instrument's id) is only a hit of the same
-instrument: it marks the step, and does not change the sound.
+instrument: it marks the step, and does not change the sound, unless the line
+starts with `kit`.
 `[bd sd]` squeezes into one step, `hh*4` plays four times as fast, `bd(3,8)`
 spreads 3 hits over 8 steps, and `<0 2 4>` plays one value per pulse. The next
 pulse through the box plays the next pass.
 
+Start the line with `kit` and each drum name plays that drum, so one box can be
+a whole kit: `kit [bd*4, [~ cp]*2, hh*8]`. `kick-9`, `hat-9`, `open-9`,
+`clap-9` and `rim-9` are the club kit; a closed `hat-9` cuts an `open-9` short.
+`^` before a note accents it, which opens the acid bass filter. A note that is
+still sounding when the next one starts makes the acid bass slide.
+
 `fast 2`, `slow 2` and `rev` in the block's code change that pass. A pattern
 that doesn't parse plays nothing new; while you fix it, the last one that
 parsed keeps going.
+
+## Background
+
+**Background**, under the canvas, plays an audio file behind the piece at the
+file's own speed, starting at beat 0. Drag a cut to move it; drag its edges to
+trim. **Split** cuts the selected slice at the playhead while playing, or in
+half when stopped. Each cut has gain, fades and mute. The cuts are listed in
+the timeline above the lane. The file is kept in this browser like a region's
+sample, so a shared link leaves it behind and a saved file carries it.
 
 ## Code
 
@@ -177,6 +195,9 @@ a block or link with code is marked `ƒ`.
 | `src/engine/voices.ts` | Tone.js sounds. Tone can be a drawn cycle or a sample; the other instruments keep their own voices. |
 | `src/engine/instruments.ts` | The instrument catalog, grouped into families. |
 | `src/engine/catalogVoices.ts` | Shared synthesis for the catalog: sustained, plucked, bowed, blown, mallet, and drum. |
+| `src/engine/machine.ts` | The club kit and the acid bass. |
+| `src/bed.ts` | A background file cut into slices on the beat. |
+| `src/engine/bedPlayer.ts` | Plays those slices on the audio clock. |
 | `src/engine/wave.ts` | Drawn cycles and cutoff motions: a stroke becomes a waveform and a beat-synced filter curve. |
 | `src/engine/samples.ts` | Stores sample files in IndexedDB, by a hash of their bytes. |
 | `src/engine/tuning.ts` | Scales as cents, and the root (key) as Hz. Pitch is stored as a scale degree. |
@@ -203,3 +224,4 @@ a block or link with code is marked `ƒ`.
 6. ~~Save, share by link, record~~
 7. ~~Waves: a drawn cycle for the tone, and cutoff motions whose width is the loop~~
 8. ~~Pattern blocks: a box as long as its pattern, in Strudel mini-notation~~
+9. ~~Techno: a machine kit, an acid bass, drive and pump, and one pattern box for a whole kit~~

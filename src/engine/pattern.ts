@@ -8,6 +8,8 @@ import { SCALES, scaleById } from './tuning';
 //
 //   0 2 4          scale degrees above the block's own pitch
 //   bd sd hh       hits of the block's instrument; the word only marks the step
+//   kit bd sd hh   a kit: each word plays that drum. Numbers stay on this block.
+//   ^2             an accent. The acid bass opens its filter on that note.
 //   x:4            a hit four degrees up. The block's instrument plays every hit.
 //   ~              a rest
 //   [a b]          squeeze into one step      a*2    twice as fast
@@ -57,6 +59,8 @@ export interface PatternNote {
   scaleId?: string;
   /** Set by `octave` at the start of the pattern. */
   octave?: number;
+  /** A `^` written on this note. The acid bass opens its filter. */
+  accent?: boolean;
 }
 
 /** A change to how one pass plays, from the block's code. */
@@ -202,12 +206,40 @@ function weigh(node: unknown): number {
   }
 }
 
-function noteOf(value: unknown): Pick<PatternNote, 'kind' | 'degree'> | null {
+function noteOf(value: unknown, kit: boolean): Pick<PatternNote, 'kind' | 'degree'> | null {
   const [head, tail] = Array.isArray(value) ? value : [value];
   const clamp = (n: number) => Math.round(Math.min(MAX_DEGREE, Math.max(-MAX_DEGREE, n)));
   if (typeof head === 'number') return Number.isFinite(head) ? { kind: null, degree: clamp(head) } : null;
   if (typeof head !== 'string' || !soundNamed(head)) return null;
-  return { kind: null, degree: typeof tail === 'number' && Number.isFinite(tail) ? clamp(tail) : 0 };
+  const kind = kit ? soundNamed(head) : null;
+  return { kind, degree: typeof tail === 'number' && Number.isFinite(tail) ? clamp(tail) : 0 };
+}
+
+/**
+ * `^` before a note marks an accent. The parser treats `^` as part of a word,
+ * so it is lifted off first and the note's place in the original text is kept.
+ */
+function liftAccents(mini: string): { text: string; origin: number[] } {
+  let text = '';
+  const origin: number[] = [];
+  for (let i = 0; i < mini.length; i++) {
+    const next = mini[i + 1];
+    if (mini[i] === '^' && next !== undefined && /[A-Za-z0-9-]/.test(next)) continue;
+    origin.push(i);
+    text += mini[i];
+  }
+  return { text, origin };
+}
+
+function placed(where: Written | null, cut: number, mini: string, origin: number[]): { from: number; to: number; accent: boolean } | null {
+  if (!where) return null;
+  const start = where.from - cut;
+  const end = where.to - cut;
+  if (start < 0 || start >= origin.length) return { from: where.from, to: where.to, accent: false };
+  const from0 = origin[start];
+  const accent = from0 > 0 && mini[from0 - 1] === '^';
+  const last = origin[Math.min(origin.length - 1, Math.max(start, end - 1))] ?? from0;
+  return { from: cut + from0 - (accent ? 1 : 0), to: cut + last + 1, accent };
 }
 
 /** The most notes one pass of `source` could hold; Infinity if it doesn't parse. */
@@ -240,7 +272,9 @@ export interface PatternHead {
   scaleId?: string;
   octave: number;
   sound?: InstrumentId;
-  /** The mini-notation, once scale, octave and sound have been taken off the front. */
+  /** `kit` at the front: each drum name plays that drum, instead of marking a step. */
+  kit: boolean;
+  /** The mini-notation, once scale, octave, sound and kit have been taken off the front. */
   mini: string;
   /** How many characters of `source` the header used. */
   cut: number;
@@ -254,6 +288,7 @@ export function readPatternHead(source: string): PatternHead {
   let scaleId: string | undefined;
   let octave = 0;
   let sound: InstrumentId | undefined;
+  let kit = false;
   let error: string | null = null;
   for (;;) {
     const scale = /^scale\s+(\S+)\s*/i.exec(rest);
@@ -283,10 +318,18 @@ export function readPatternHead(source: string): PatternHead {
       rest = source.slice(cut);
       continue;
     }
+    // `kit` is a word of its own, so `kitten` and a later `kit` in the notes stay notes.
+    const kitWord = /^kit\b\s*/i.exec(rest);
+    if (kitWord) {
+      kit = true;
+      cut += kitWord[0].length;
+      rest = source.slice(cut);
+      continue;
+    }
     break;
   }
-  if (!error && cut > 0 && !rest.trim()) error = 'It needs notes after scale, octave or sound.';
-  return { scaleId, octave, sound, mini: rest, cut, error };
+  if (!error && cut > 0 && !rest.trim()) error = 'It needs notes after scale, octave, sound or kit.';
+  return { scaleId, octave, sound, kit, mini: rest, cut, error };
 }
 
 interface Written {
@@ -316,7 +359,10 @@ function build(source: string): Pattern {
   if (source.includes('"')) return failed(source, 'Leave the quotes out: write the pattern on its own.');
   const head = readPatternHead(source);
   if (head.error) return failed(source, head.error);
-  const mini = head.mini;
+  // Accents are lifted so the parser sees the note, and mapped back onto the
+  // original text so the sounding word still lights up, caret included.
+  const lifted = liftAccents(head.mini);
+  const mini = lifted.text;
 
   // Strudel's parser reads the pattern as a quoted string.
   const code = `"${mini}"`;
@@ -370,17 +416,19 @@ function build(source: string): Pattern {
           if (!hap.whole || !hap.hasOnset()) continue;
           const at = hap.whole.begin.valueOf() - cycle;
           if (at < from || at >= to) continue;
-          const note = noteOf(hap.value);
-          const where = writtenAt(hap, head.cut);
+          const note = noteOf(hap.value, head.kit);
+          const mark = placed(writtenAt(hap, head.cut), head.cut, head.mini, lifted.origin);
           if (note) {
+            const kind = note.kind ?? head.sound ?? null;
             out.push({
               at,
               span: hap.whole.end.valueOf() - cycle - at,
-              ...note,
-              ...(head.sound ? { kind: head.sound } : {}),
+              degree: note.degree,
+              kind,
+              ...(mark?.accent ? { accent: true } : {}),
               ...(head.scaleId ? { scaleId: head.scaleId } : {}),
               ...(head.octave ? { octave: head.octave } : {}),
-              ...(where ? where : {}),
+              ...(mark ? { from: mark.from, to: mark.to } : {}),
             });
           }
           if (out.length >= MAX_PATTERN_NOTES * 4) break;
@@ -418,7 +466,9 @@ export function starterPattern(kind: string): string {
 /** The patterns a new block starts from, and what the reference shows. */
 export const PATTERN_REFERENCE: [string, string][] = [
   ['0 2 4', "scale degrees above this block's pitch. Its instrument plays every one."],
-  ['bd sd hh', "hits of this block's instrument. A word only marks the step: bd sd hh oh cp, or an instrument's id."],
+  ['bd sd hh', "hits of this block's instrument. A word only marks the step, unless the line starts with kit."],
+  ['kit [bd*4, [~ cp]*2, hh*8]', 'a kit: each name plays that drum. kick-9, hat-9, open-9, clap-9 and rim-9 are the club kit.'],
+  ['^2', 'an accent. The acid bass opens its filter on this note.'],
   ['bd:4', "that hit, four degrees above the block's pitch"],
   ['~', 'a rest'],
   ['[bd sd]', 'squeeze several into one step'],

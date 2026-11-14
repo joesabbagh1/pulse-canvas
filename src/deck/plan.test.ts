@@ -20,7 +20,7 @@ function rig(): DeckInput {
         w: 600,
         h: 400,
         mix: { level: 0, pan: 0, mute: false },
-        fx: { tone: 1, echo: 0, echoBeats: 0.75, reverb: 0.25 },
+        fx: { tone: 1, echo: 0, echoBeats: 0.75, reverb: 0.25, drive: 0, pump: 0, pumpBeats: 0.5 },
         groove: { swing: 0, swingGrid: 0.5, humanize: 0 },
       },
     ],
@@ -107,6 +107,15 @@ describe('deck plan', () => {
   it('refuses to shorten a link past the straight line', () => {
     const plan = perform(rig(), { op: 'stretch', link: 'Start to Kick', beats: 0.5 });
     expect('error' in plan && plan.error).toMatch(/straight line/);
+  });
+
+  it('sets drive and pump on a region', () => {
+    const plan = perform(rig(), { op: 'mix', region: 'drums', drive: 0.5, pump: 0.75, pumpBeats: 0.5 });
+    if ('error' in plan) throw new Error(plan.error);
+    expect(plan.effects).toEqual([{ type: 'region', id: 'drums', fx: { drive: 0.5, pump: 0.75, pumpBeats: 0.5 } }]);
+    expect(plan.text).toContain('drive 50%');
+    expect(plan.text).toContain('pump 75%');
+    expect(plan.text).toContain('pump 75% over ½');
   });
 
   it('bends a link out to a longer travel time', () => {

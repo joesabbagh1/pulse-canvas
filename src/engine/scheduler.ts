@@ -48,7 +48,7 @@ export interface GraphBlock extends Tuning {
 }
 
 /** Voices that hold a note for as long as they're told to. Plucks, mallets and drums ring out on their own. */
-const HELD_VOICES = new Set(['sustain', 'bow', 'blow', 'tone', 'bass', 'khuur']);
+const HELD_VOICES = new Set(['sustain', 'bow', 'blow', 'tone', 'bass', 'khuur', 'acid']);
 
 /** The block as one note of its pattern plays it, and how long that note lasts. */
 export function patternHit(block: GraphBlock, note: PatternNote, span: number): { block: GraphBlock; length: number | null } {
@@ -114,6 +114,8 @@ export interface NoteShape {
   velocity: number;
   /** In beats; null leaves the instrument's own. */
   length: number | null;
+  /** A marked note. The acid bass opens its filter; other voices just play. */
+  accent?: boolean;
 }
 
 export const PLAIN: Readonly<NoteShape> = { velocity: 1, length: null };
@@ -349,7 +351,7 @@ export class Scheduler {
       for (const note of pattern.notes(run.cycle, (run.cursor - run.start) / span, (until - run.start) / span, run)) {
         if (run.hits++ >= MAX_RUN_HITS) break;
         const hit = patternHit(block, note, span);
-        const shape = { velocity: run.velocity, length: run.length ?? hit.length };
+        const shape = { velocity: run.velocity, length: run.length ?? hit.length, ...(note.accent ? { accent: true } : {}) };
         this.onHit(hit.block, run.start + note.at * span, run.shift, shape, { x: left + note.at * width, y: block.y });
       }
       run.cursor = until;

@@ -411,7 +411,8 @@ describe('App', () => {
       await act(() => new Promise((r) => setTimeout(r, 20)));
       const titles = [...host.querySelectorAll('.example-card h2')].map((h) => h.textContent);
       expect(titles[0]).toBe('The tour');
-      expect(titles).toHaveLength(12);
+      expect(titles[1]).toBe('Four on the floor');
+      expect(titles).toHaveLength(13);
       act(() => root.unmount());
     });
   });

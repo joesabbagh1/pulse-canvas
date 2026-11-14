@@ -1,5 +1,6 @@
 import type { Instrument } from './instruments';
 import { NO_GATE, ONCE_GATE, type NoteGate } from './holds';
+import { AcidVoice, MachineKit } from './machine';
 import { Pool } from './pool';
 import * as Tone from 'tone';
 
@@ -358,11 +359,13 @@ export class CatalogVoices {
   private blow: Pool<BlowVoice> | null = null;
   private mallet: Pool<Tone.FMSynth> | null = null;
   private drum: Pool<DrumVoice> | null = null;
+  private machine: MachineKit | null = null;
+  private acid: AcidVoice | null = null;
 
   constructor(private output: Tone.InputNode) {}
 
   /** length null means use a default for that voice. secondsPerBeat is the tempo. Built-in voices (tone, pluck, bass, jawharp, khuur, kick, snare, hat) are ignored here. */
-  play(inst: Instrument, hz: number, time: number, velocity: number, length: number | null, secondsPerBeat: number): void {
+  play(inst: Instrument, hz: number, time: number, velocity: number, length: number | null, secondsPerBeat: number, accent = false): void {
     if (velocity <= 0) return;
     switch (inst.voice) {
       case 'sustain':
@@ -382,6 +385,12 @@ export class CatalogVoices {
         return;
       case 'drum':
         this.playDrum(inst, hz, time, velocity, length);
+        return;
+      case 'machine':
+        this.machineKit().hit(inst, hz, time, velocity);
+        return;
+      case 'acid':
+        this.acidVoice().play(inst, hz, time, velocity, length, secondsPerBeat, accent);
         return;
       case 'tone':
       case 'bass':
@@ -414,6 +423,11 @@ export class CatalogVoices {
       case 'drum':
         this.playDrum(inst, hz, time, velocity, null);
         return ONCE_GATE;
+      case 'machine':
+        this.machineKit().hit(inst, hz, time, velocity);
+        return ONCE_GATE;
+      case 'acid':
+        return this.acidVoice().hold(hz, time, velocity, inst.gain);
       case 'tone':
       case 'bass':
       case 'jawharp':
@@ -437,6 +451,8 @@ export class CatalogVoices {
     }
     if (this.mallet) for (const voice of this.mallet.voices) voice.triggerRelease(time);
     if (this.drum) for (const voice of this.drum.voices) voice.release(time);
+    this.machine?.silence(time);
+    this.acid?.silence(time);
     this.sustain?.releaseAll(time);
     this.pluck?.releaseAll(time);
     this.bow?.releaseAll(time);
@@ -452,6 +468,16 @@ export class CatalogVoices {
     if (this.blow) for (const voice of this.blow.voices) voice.dispose();
     if (this.mallet) for (const voice of this.mallet.voices) voice.dispose();
     if (this.drum) for (const voice of this.drum.voices) voice.dispose();
+    this.machine?.dispose();
+    this.acid?.dispose();
+  }
+
+  private machineKit() {
+    return (this.machine ??= new MachineKit(this.output));
+  }
+
+  private acidVoice() {
+    return (this.acid ??= new AcidVoice(this.output));
   }
 
   private sustainPool(): Pool<SustainVoice> {

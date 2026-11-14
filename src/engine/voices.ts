@@ -443,7 +443,7 @@ export class Voices {
           if (inst.pitched && !audible(hz)) break;
           const held = length ?? Math.min(1.2, Math.max(0.3, secondsPerBeat));
           if (!(inst.pitched && this.playCycle(block.kind, hz, time, velocity, held))) {
-            this.catalog.play(inst, hz, time, velocity, length, secondsPerBeat);
+            this.catalog.play(inst, hz, time, velocity, length, secondsPerBeat, shape.accent === true);
           }
           break;
         }
