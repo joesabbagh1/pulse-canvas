@@ -4,6 +4,18 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Pulse Canvas</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Mona+Sans:wght@400..650&family=Azeret+Mono:wght@400;500&display=swap"
+    />
+    <script>
+      // Before the first paint, so the page never flashes the other ground.
+      try {
+        document.documentElement.dataset.theme = localStorage.getItem('pulse-theme') === 'dark' ? 'dark' : 'light';
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>

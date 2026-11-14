@@ -6,6 +6,7 @@ import { setLivePasses } from './livePass';
 import { playhead } from './playhead';
 import { BLOCK_R, PX_PER_BEAT, inPort, slicePath, spanOf } from '../engine/geometry';
 import { blockColor } from '../settings';
+import { token } from '../ui/theme';
 
 const TAIL_PX = 34;
 const FLASH_SECONDS = 0.45;
@@ -99,11 +100,13 @@ export function PulseLayer({ engine }: { engine: Engine }) {
       const beat = engine.clock.beatAt(now);
       const sx = (x: number) => x * zoom + tx;
       const sy = (y: number) => y * zoom + ty;
+      // The pulse is the ink: black on the white ground, white on the black one.
+      const ink = token('--ink-rgb');
       const dot = (hx: number, hy: number, tail?: { x: number; y: number }[]) => {
         if (tail && tail.length > 1) {
           const grad = ctx.createLinearGradient(tail[0].x, tail[0].y, hx, hy);
-          grad.addColorStop(0, 'rgba(255, 209, 102, 0)');
-          grad.addColorStop(1, 'rgba(255, 209, 102, 0.85)');
+          grad.addColorStop(0, `rgb(${ink} / 0)`);
+          grad.addColorStop(1, `rgb(${ink} / 0.7)`);
           ctx.strokeStyle = grad;
           ctx.lineWidth = 3 * zoom;
           ctx.lineJoin = 'round';
@@ -111,11 +114,11 @@ export function PulseLayer({ engine }: { engine: Engine }) {
           for (const point of tail) ctx.lineTo(point.x, point.y);
           ctx.stroke();
         }
-        ctx.fillStyle = 'rgba(255, 209, 102, 0.22)';
+        ctx.fillStyle = `rgb(${ink} / 0.14)`;
         ctx.beginPath();
         ctx.arc(hx, hy, 9 * zoom, 0, Math.PI * 2);
         ctx.fill();
-        ctx.fillStyle = '#fff6dc';
+        ctx.fillStyle = `rgb(${ink})`;
         ctx.beginPath();
         ctx.arc(hx, hy, 3.6 * zoom, 0, Math.PI * 2);
         ctx.fill();
@@ -209,7 +212,7 @@ export function PulseLayer({ engine }: { engine: Engine }) {
         const left = rect.left - canvasBox.left + 10;
         const width = Math.max(8, rect.width - 20);
         const mid = rect.bottom - canvasBox.top - 10;
-        ctx.strokeStyle = 'rgba(255, 246, 220, 0.9)';
+        ctx.strokeStyle = `rgb(${ink} / 0.9)`;
         ctx.lineWidth = 1.25;
         ctx.beginPath();
         const step = 2;

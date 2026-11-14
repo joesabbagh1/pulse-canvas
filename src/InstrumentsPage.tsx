@@ -361,15 +361,14 @@ export function InstrumentsPage({ bpm, snap, scale, rootHz, takes, onAttack, onR
     <div className={`page instruments-page${listOpen ? '' : ' is-list-closed'}`}>
       {listOpen && (
       <aside className="instrument-catalog" aria-label="Instruments">
-        <h1 data-n="04">Instruments</h1>
-        {CATEGORIES.map((category, family) => (
+        <h1>Instruments</h1>
+        {CATEGORIES.map((category) => (
           <section key={category.id} className="instrument-family">
-            <h2 data-n={String(family + 1).padStart(2, '0')}>{category.label}</h2>
-            {instrumentsIn(category.id).map((item, index) => (
+            <h2>{category.label}</h2>
+            {instrumentsIn(category.id).map((item) => (
               <button
                 type="button"
                 key={item.id}
-                data-n={String(index + 1).padStart(2, '0')}
                 className={`instrument-choice${item.id === instrument.id ? ' is-on' : ''}`}
                 aria-pressed={item.id === instrument.id}
                 onClick={() => choose(item.id)}

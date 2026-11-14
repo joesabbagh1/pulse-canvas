@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Engine } from '../engine/engine';
+import { token } from '../ui/theme';
 
 type View = 'wave' | 'bands' | 'scroll';
 
@@ -28,8 +29,8 @@ export function ScopePanel({ engine }: { engine: Engine }) {
       ctx.clearRect(0, 0, w, h);
       const kind = viewRef.current;
       const data = engine.sample(kind === 'wave' ? 'wave' : 'bands');
-      ctx.strokeStyle = '#d7deea';
-      ctx.fillStyle = '#d7deea';
+      ctx.strokeStyle = token('--ink');
+      ctx.fillStyle = token('--ink');
       if (!data) {
         ctx.globalAlpha = 0.35;
         ctx.beginPath();

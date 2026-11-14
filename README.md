@@ -62,6 +62,8 @@ The deck listens on `127.0.0.1:4731`. Cursor starts it from `.cursor/mcp.json`. 
   a burst of edits is one step. Inside a text box the shortcut undoes typing
   as usual. History lasts for the session, up to 200 steps.
 - The canvas autosaves to this browser.
+- The moon in the bar switches the ground from white to black; the choice stays
+  in this browser.
 
 ## Save, share, record
 
@@ -161,6 +163,12 @@ half when stopped. Each cut has gain, fades and mute. The cuts are listed in
 the timeline above the lane. The file is kept in this browser like a region's
 sample, so a shared link leaves it behind and a saved file carries it.
 
+Next to **Load a file…** there is a YouTube box: paste a video URL and
+**Import** fetches the audio through the dev server (`yt-dlp` and `ffmpeg`,
+installed by `brew install yt-dlp ffmpeg`), converts it to an MP3 sized to fit
+the sample store, and loads it as the background. Very long videos are refused
+rather than arriving truncated.
+
 ## Code
 
 Each block and link can have a few lines of code that decide what happens to
@@ -198,6 +206,8 @@ a block or link with code is marked `ƒ`.
 | `src/engine/machine.ts` | The club kit and the acid bass. |
 | `src/bed.ts` | A background file cut into slices on the beat. |
 | `src/engine/bedPlayer.ts` | Plays those slices on the audio clock. |
+| `src/youTubeAudio.ts` | The Background lane's YouTube paste: fetches the converter and hands over a File. |
+| `mcp/ytAudio.ts` | Dev-server routes that run yt-dlp to turn a YouTube URL into an MP3. |
 | `src/engine/wave.ts` | Drawn cycles and cutoff motions: a stroke becomes a waveform and a beat-synced filter curve. |
 | `src/engine/samples.ts` | Stores sample files in IndexedDB, by a hash of their bytes. |
 | `src/engine/tuning.ts` | Scales as cents, and the root (key) as Hz. Pitch is stored as a scale degree. |

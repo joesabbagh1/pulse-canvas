@@ -15,7 +15,6 @@ export function ExamplesPage({ onOpen }: { onOpen: (example: Example) => void })
         <div className="examples-grid">
           {EXAMPLES.map((example) => (
             <article key={example.id} className="example-card">
-              <div className={`example-banner tradition-${example.id}`} aria-hidden="true" />
               <div className="example-body">
                 <div className="example-tradition">{example.tradition}</div>
                 <h2>{example.title}</h2>

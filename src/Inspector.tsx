@@ -52,7 +52,7 @@ export function Inspector(props: Props) {
     const who = aimed?.name ?? 'this instrument';
     return (
       <div className="inspector">
-        <div className="inspector-title" data-n="04">
+        <div className="inspector-title">
           Wave
         </div>
         <div className="segmented">
@@ -121,7 +121,7 @@ export function Inspector(props: Props) {
   if (link) {
     return (
       <div className="inspector">
-        <div className="inspector-title" data-n="03">
+        <div className="inspector-title">
           Link
         </div>
         <LengthField
@@ -155,7 +155,7 @@ export function Inspector(props: Props) {
 
   return (
     <div className="inspector" style={{ '--c': blockColor(kind, degree, tuning.scale) } as CSSProperties}>
-      <div className="inspector-title" data-n="02">
+      <div className="inspector-title">
         <span className="swatch" /> Block
       </div>
 

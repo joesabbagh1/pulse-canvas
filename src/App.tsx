@@ -12,6 +12,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
+import { flushSync } from 'react-dom';
 import { wholeClip, type Bed } from './bed';
 import { CanvasPage } from './CanvasPage';
 import { CanvasesPage } from './CanvasesPage';
@@ -25,7 +26,7 @@ import { NEW_PATTERN } from './engine/pattern';
 import { isMelodic, type BlockKind } from './engine/scheduler';
 import { DEFAULT_SCALE_ID, SCALES, scaleById, type Scale, type Tuning } from './engine/tuning';
 import { GuidePage } from './GuidePage';
-import type { Example } from './examples';
+import { EXAMPLES, type Example } from './examples';
 import {
   bendsCarriedBy,
   bendsOf,
@@ -70,6 +71,7 @@ import type { MenuItem } from './ui/Menu';
 import { useRoute } from './ui/route';
 import { ConfirmHost, confirmDialog } from './ui/Confirm';
 import { ToastHost, toast } from './ui/Toast';
+import { youtubeAudio, youtubeInfo } from './youTubeAudio';
 import { storeSample } from './engine/samples';
 import { MAX_RECORD_SECONDS } from './engine/recorder';
 import { useHistory } from './history';
@@ -142,7 +144,13 @@ function Studio() {
   const [recordedSeconds, setRecordedSeconds] = useState(0);
   const openFileRef = useRef<HTMLInputElement>(null);
   const [stats, setStats] = useState({ pulses: 0, overflow: false, beat: 0 });
-  const [engine] = useState(() => new Engine());
+  const [engine, setEngine] = useState(() => new Engine());
+  // A hot reload keeps the old engine, including a playback clock that already
+  // stopped. The new class is a different one, so swap it in.
+  if (!(engine instanceof Engine)) {
+    engine.stop();
+    setEngine(new Engine());
+  }
   const { screenToFlowPosition, deleteElements, fitView } = useReactFlow<CanvasNode, LinkEdge>();
   const wrapperRef = useRef<HTMLDivElement>(null);
 
@@ -556,6 +564,27 @@ function Studio() {
     toast('success', `Playing ${file.name} behind the piece`, 'Drag a cut to move it, its edges to trim, and Split to cut it.');
   };
 
+  // A pasted YouTube URL becomes an MP3 on the dev server, then rides the same
+  // store-and-decode path as a file, so a video that fails never replaces a
+  // working background. The lookup first so the person knows what is coming.
+  const loadYouTube = async (raw: string) => {
+    const url = raw.trim();
+    if (!url) return;
+    let info;
+    try {
+      info = await youtubeInfo(url);
+    } catch (err) {
+      toast('error', "Couldn't use that URL", (err as Error).message);
+      return;
+    }
+    try {
+      const file = await youtubeAudio(url, info);
+      await loadBed(file);
+    } catch (err) {
+      toast('error', `Couldn't download “${info.title}”`, (err as Error).message);
+    }
+  };
+
   const updateRegion = (id: string, patch: Partial<RegionData>) =>
     setNodes((ns) => ns.map((n) => (n.id === id && isRegion(n) ? { ...n, data: { ...n.data, ...patch } } : n)));
 
@@ -778,21 +807,22 @@ function Studio() {
     go('canvas');
   };
 
-  const makeCanvas = () => {
+  const makeCanvas = (name?: string): string | null => {
     if (canvases.length >= MAX_CANVASES) {
       toast('info', `${MAX_CANVASES} canvases is the limit`, 'Delete one before adding another.');
-      return;
+      return `${MAX_CANVASES} canvases is the limit. Delete one before adding another.`;
     }
     const piece = currentPiece();
     const fresh = emptyPiece(settingsNow());
     const saved = canvases.map((canvas) => (canvas.id === canvasId ? { ...canvas, piece, updatedAt: Date.now() } : canvas));
-    const added = addCanvas({ currentId: canvasId, canvases: saved }, fresh);
-    if (!added) return;
+    const added = addCanvas({ currentId: canvasId, canvases: saved }, fresh, Date.now(), name);
+    if (!added) return `${MAX_CANVASES} canvases is the limit. Delete one before adding another.`;
     writeLibrary(localStorage, added);
     setCanvases(added.canvases);
     setCanvasId(added.currentId);
     replaceWith(fresh);
     go('canvas');
+    return null;
   };
 
   const renameCanvas = (id: string, name: string) => {
@@ -801,6 +831,16 @@ function Studio() {
       writeLibrary(localStorage, file);
       return file.canvases;
     });
+  };
+
+  const removeCanvas = (id: string) => {
+    const piece = currentPiece();
+    const saved = canvases.map((item) => (item.id === canvasId ? { ...item, piece, updatedAt: Date.now() } : item));
+    const result = removeFromLibrary({ currentId: canvasId, canvases: saved }, id, emptyPiece(settingsNow()));
+    writeLibrary(localStorage, result.file);
+    setCanvases(result.file.canvases);
+    setCanvasId(result.file.currentId);
+    if (result.opened) replaceWith(result.opened);
   };
 
   const deleteCanvas = async (id: string) => {
@@ -813,13 +853,7 @@ function Studio() {
       danger: true,
     });
     if (!ok) return;
-    const piece = currentPiece();
-    const saved = canvases.map((item) => (item.id === canvasId ? { ...item, piece, updatedAt: Date.now() } : item));
-    const result = removeFromLibrary({ currentId: canvasId, canvases: saved }, id, emptyPiece(settingsNow()));
-    writeLibrary(localStorage, result.file);
-    setCanvases(result.file.canvases);
-    setCanvasId(result.file.currentId);
-    if (result.opened) replaceWith(result.opened);
+    removeCanvas(id);
   };
 
   const canvasName = canvases.find((canvas) => canvas.id === canvasId)?.name ?? 'Canvas';
@@ -992,6 +1026,7 @@ function Studio() {
         scaleName: scaleById(node.data.scaleId, scales).name,
         rootHz: node.data.rootHz,
         ...(node.data.key ? { key: node.data.key } : {}),
+        ...(node.data.sample ? { sample: node.data.sample } : {}),
         x: node.position.x,
         y: node.position.y,
         w: node.width ?? node.measured?.width ?? 0,
@@ -1008,6 +1043,29 @@ function Studio() {
       })),
       recording,
       takes,
+      canvasId,
+      canvases: canvases.map((canvas) => ({ id: canvas.id, name: canvas.name })),
+      bed: bed
+        ? {
+            name: bed.sample.name,
+            sampleId: bed.sample.id,
+            duration: bed.duration,
+            level: bed.level,
+            missing: bedMissing,
+            clips: bed.clips.map((clip) => ({
+              id: clip.id,
+              beat: clip.beat,
+              offset: clip.offset,
+              seconds: clip.seconds,
+              gain: clip.gain,
+              fadeIn: clip.fadeIn,
+              fadeOut: clip.fadeOut,
+              mute: clip.mute,
+            })),
+          }
+        : null,
+      canUndo,
+      canRedo,
     }),
     play: async () => {
       if (engine.playing) return;
@@ -1169,6 +1227,63 @@ function Studio() {
     },
     saveTake,
     placeTake,
+    newCanvas: (name) => {
+      let failed: string | null = null;
+      flushSync(() => {
+        failed = makeCanvas(name);
+      });
+      if (!failed) toast('success', name, 'The canvas you had stays in the list.');
+      return failed;
+    },
+    openCanvas: (id) => {
+      if (!canvases.some((canvas) => canvas.id === id)) return 'That canvas is no longer in the list.';
+      flushSync(() => openCanvas(id));
+      return null;
+    },
+    renameCanvas,
+    deleteCanvas: (id) => {
+      const canvas = canvases.find((item) => item.id === id);
+      if (!canvas) return 'That canvas is no longer in the list.';
+      flushSync(() => removeCanvas(id));
+      toast('info', `Deleted ${canvas.name}`, canvases.length === 1 ? 'A blank canvas takes its place.' : 'The other canvases stay.');
+      return null;
+    },
+    openExample: (id) => {
+      const example = EXAMPLES.find((item) => item.id === id);
+      if (!example) return 'That example is no longer here.';
+      flushSync(() => openExample(example));
+      return null;
+    },
+    undo: () => {
+      if (!canUndo) return 'Nothing to undo.';
+      flushSync(() => undo());
+      return null;
+    },
+    redo: () => {
+      if (!canRedo) return 'Nothing to redo.';
+      flushSync(() => redo());
+      return null;
+    },
+    setBed,
+    regionSample: async (id, sample) => {
+      if (sample) {
+        try {
+          await engine.loadSample(sample.id);
+        } catch (err) {
+          return err instanceof Error ? err.message : 'That sample is not in this browser.';
+        }
+      }
+      setNodes((list) =>
+        list.map((node) => {
+          if (node.id !== id || !isRegion(node)) return node;
+          const data = { ...node.data };
+          if (sample) data.sample = sample;
+          else delete data.sample;
+          return { ...node, data };
+        }),
+      );
+      return null;
+    },
   });
 
   return (
@@ -1299,6 +1414,7 @@ function Studio() {
             bedMissing={bedMissing}
             onBed={setBed}
             onLoadBed={(file) => void loadBed(file)}
+            onLoadUrl={loadYouTube}
           />
 
           {route === 'canvases' && (

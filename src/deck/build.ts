@@ -7,7 +7,8 @@ import { INSTRUMENTS, instrumentById, isInstrumentId } from '../engine/instrumen
 import { MAX_PATTERN_CHARS, NEW_PATTERN, compilePattern } from '../engine/pattern';
 import { MAX_DELAY, compile } from '../engine/script';
 import { DEFAULT_SCALE_ID, KEYS, ROOT_HZ, SCALES } from '../engine/tuning';
-import { stampOf, type Stamp } from '../engine/wave';
+import { MAX_WAVE_POINTS, MIN_WAVE_WIDTH, stampOf, type Stamp } from '../engine/wave';
+import { MAX_CANVASES, canvasName, nextCanvasName } from '../library';
 import { MIN_REGION } from '../regions';
 import type { DeckEffect, DeckPlan } from './effects';
 import { findBlocks, findRegions } from './plan';
@@ -743,6 +744,17 @@ function wave(input: DeckInput, command: Record<string, unknown>): DeckPlan {
     next.points = next.points.map((point) => ({ x: point.x + dx * PX_PER_BEAT, y: point.y + dy * PX_PER_BEAT }));
     notes.push('moved');
   }
+  if (command.role !== undefined) {
+    if (command.role !== 'cycle' && command.role !== 'motion') return { error: 'A wave role is cycle or motion.' };
+    next.role = command.role;
+    notes.push(command.role);
+  }
+  if (command.points !== undefined) {
+    const points = readWavePoints(command.points);
+    if (typeof points === 'string') return { error: points };
+    next.points = points;
+    notes.push(`${points.length} points`);
+  }
   if (command.clearInstrument || norm(String(command.instrument ?? '')) === 'region') {
     delete next.instrument;
     notes.push('aims at the region');
@@ -753,7 +765,7 @@ function wave(input: DeckInput, command: Record<string, unknown>): DeckPlan {
     next.instrument = kind.id;
     notes.push(`for ${blockName(kind.id)}`);
   }
-  if (!notes.length) return { error: 'Move the wave, aim it at an instrument, or remove it.' };
+  if (!notes.length) return { error: 'Move the wave, set its points or role, aim it at an instrument, or remove it.' };
   return done(
     { ...input, waves: waves.map((item) => (item.id === next.id ? next : item)) },
     [{ type: 'putWave', wave: next }],
@@ -761,7 +773,45 @@ function wave(input: DeckInput, command: Record<string, unknown>): DeckPlan {
   );
 }
 
-const BUILD_OPS = new Set(['catalog', 'add_block', 'edit_block', 'link', 'edit_link', 'remove', 'add_region', 'edit_region', 'tune', 'wave']);
+function readWavePoints(value: unknown): { x: number; y: number }[] | string {
+  if (!Array.isArray(value)) return 'Points are a list of x and y, in beats.';
+  if (value.length < 2 || value.length > MAX_WAVE_POINTS) return `A wave needs 2 to ${MAX_WAVE_POINTS} points.`;
+  const points: { x: number; y: number }[] = [];
+  for (const item of value) {
+    if (typeof item !== 'object' || item === null) return 'Each point needs an x and a y.';
+    const row = item as { x?: unknown; y?: unknown };
+    const x = num(row.x, 'x', -4000, 4000);
+    if (typeof x === 'string') return x;
+    const y = num(row.y, 'y', -4000, 4000);
+    if (typeof y === 'string') return y;
+    points.push({ x: px(x), y: px(y) });
+  }
+  points.sort((a, b) => a.x - b.x);
+  if (points[points.length - 1].x - points[0].x < MIN_WAVE_WIDTH) return 'The drawing is too narrow. Spread the points by more than a sixteenth of a beat.';
+  return points;
+}
+
+function shelf(input: DeckInput) {
+  return input.canvases?.length ? input.canvases : [{ id: '', name: input.canvasName }];
+}
+
+function newCanvas(input: DeckInput, command: Record<string, unknown>): DeckPlan {
+  const list = shelf(input);
+  if (list.length >= MAX_CANVASES) return { error: `${MAX_CANVASES} canvases is the limit. Delete one before adding another.` };
+  const fallback = nextCanvasName(list);
+  let name = fallback;
+  if (command.name !== undefined) {
+    if (typeof command.name !== 'string') return { error: 'A canvas name is text.' };
+    if (command.name.trim()) name = canvasName(command.name, fallback);
+  }
+  return {
+    effects: [{ type: 'newCanvas', name }],
+    text: `Opened ${name}. The canvas you had stays in the list.`,
+    reread: true,
+  };
+}
+
+const BUILD_OPS = new Set(['catalog', 'add_block', 'edit_block', 'link', 'edit_link', 'remove', 'add_region', 'edit_region', 'tune', 'wave', 'new_canvas']);
 
 /** Null when `command` is not a building move, so the player can try the performance tools. */
 export function build(input: DeckInput, command: Record<string, unknown>): DeckPlan | null {
@@ -776,5 +826,6 @@ export function build(input: DeckInput, command: Record<string, unknown>): DeckP
   if (op === 'add_region') return addRegion(input, command);
   if (op === 'edit_region') return editRegion(input, command);
   if (op === 'tune') return tune(input, command);
+  if (op === 'new_canvas') return newCanvas(input, command);
   return wave(input, command);
 }

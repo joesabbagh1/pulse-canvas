@@ -6,8 +6,6 @@ import { CATEGORIES, instrumentsIn, isInstrumentId, type CategoryId } from '../e
 import type { BlockKind } from '../engine/scheduler';
 import type { Stamp } from '../engine/wave';
 
-const indexOf = (n: number) => String(n).padStart(2, '0');
-
 const STAMPS: { stamp: Stamp; label: string; hint: string }[] = [
   { stamp: 'saw', label: 'Saw', hint: 'A bright ramp. Drag the points to bend it' },
   { stamp: 'square', label: 'Square', hint: 'A hollow pulse' },
@@ -57,19 +55,18 @@ export function AddDock({
             >
               <Tabs value={category} onValueChange={(next) => next && setCategory(next)}>
                 <TabsList className="palette-categories" aria-label="Instrument family">
-                  {CATEGORIES.map((item, index) => (
-                    <TabsTab key={item.id} value={item.id} data-n={indexOf(index + 1)}>
+                  {CATEGORIES.map((item) => (
+                    <TabsTab key={item.id} value={item.id}>
                       {item.label}
                     </TabsTab>
                   ))}
                 </TabsList>
                 <TabsPanel value={family.id} className="palette-instruments">
-                  {instrumentsIn(family.id).map((inst, index) => (
+                  {instrumentsIn(family.id).map((inst) => (
                     <button
                       key={inst.id}
                       type="button"
                       className="palette-item"
-                      data-n={indexOf(index + 1)}
                       onClick={() => {
                         if (isInstrumentId(inst.id)) onAdd(inst.id);
                       }}

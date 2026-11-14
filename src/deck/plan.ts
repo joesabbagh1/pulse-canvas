@@ -16,6 +16,7 @@ import {
   type DeckMix,
   type DeckRegion,
 } from './scene';
+import { arrange } from './arrange';
 import { build } from './build';
 import { live } from './live';
 import type { DeckEffect, DeckPlan } from './effects';
@@ -351,7 +352,7 @@ export function perform(input: DeckInput, command: unknown): DeckPlan {
   if (op === 'look') {
     return {
       effects: [],
-      text: `${renderScene(input)}\n\nBuild with catalog, add_block, edit_block, link, edit_link, remove, add_region, edit_region, tune and wave. Play an instrument with play_instrument, record a WAV with record, and keep a performance with take. Perform the canvas with transport, hit, mix, nudge and stretch.`,
+      text: `${renderScene(input)}\n\nBuild with catalog, add_block, edit_block, link, edit_link, remove, add_region, edit_region, tune and wave. new_canvas, open_canvas, rename_canvas and delete_canvas change which canvas is open. examples and open_example load a ready-made piece. undo and redo step through edits. bed edits the background, and sample sets a region's audio file. Play an instrument with play_instrument, record a WAV with record, and keep a performance with take. Perform the canvas with transport, hit, mix, nudge and stretch.`,
     };
   }
   if (op === 'transport') return transport(input, record);
@@ -363,5 +364,7 @@ export function perform(input: DeckInput, command: unknown): DeckPlan {
   if (built) return built;
   const played = live(input, record);
   if (played) return played;
-  return { error: 'Unknown move. Look, then build, play_instrument, record, take, or perform with transport, hit, mix, nudge and stretch.' };
+  const arranged = arrange(input, record);
+  if (arranged) return arranged;
+  return { error: 'Unknown move. Look, then build, switch canvas, open an example, undo, or perform with transport, hit, mix, nudge and stretch.' };
 }

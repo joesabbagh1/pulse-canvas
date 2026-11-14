@@ -2,8 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 import type { XY } from '../engine/geometry';
 import { connectDeck, type DeckStatus } from './client';
 import type { DeckEffect } from './effects';
+import type { Bed } from '../bed';
+import type { SampleRef } from '../engine/samples';
 import { perform } from './plan';
-import type { DeckBlock, DeckFx, DeckGroove, DeckInput, DeckLink, DeckMix, DeckRegion, DeckWave } from './scene';
+import { renderScene, type DeckBlock, type DeckFx, type DeckGroove, type DeckInput, type DeckLink, type DeckMix, type DeckRegion, type DeckWave } from './scene';
 import type { Take } from '../takes';
 
 const GESTURE = 'Press Play in the browser once so it can make sound. After that, the deck can start and stop on its own.';
@@ -34,6 +36,17 @@ export interface DeckHandlers {
   recordStop: () => Promise<void>;
   saveTake: (take: Take) => void;
   placeTake: (take: Take) => void;
+  /** Saves the open canvas and opens a new empty one. Returns an error, or null. */
+  newCanvas: (name: string) => string | null;
+  openCanvas: (id: string) => string | null;
+  renameCanvas: (id: string, name: string) => void;
+  deleteCanvas: (id: string) => string | null;
+  openExample: (id: string) => string | null;
+  undo: () => string | null;
+  redo: () => string | null;
+  setBed: (bed: Bed | null) => void;
+  /** Null clears the region's sample. */
+  regionSample: (id: string, sample: SampleRef | null) => Promise<string | null>;
 }
 
 async function apply(handlers: DeckHandlers, effects: DeckEffect[]): Promise<string | null> {
@@ -74,7 +87,30 @@ async function apply(handlers: DeckHandlers, effects: DeckEffect[]): Promise<str
     } else if (effect.type === 'recordStop') await handlers.recordStop();
     else if (effect.type === 'saveTake') handlers.saveTake(effect.take);
     else if (effect.type === 'placeTake') handlers.placeTake(effect.take);
-    else {
+    else if (effect.type === 'newCanvas') {
+      const failed = handlers.newCanvas(effect.name);
+      if (failed) return failed;
+    } else if (effect.type === 'openCanvas') {
+      const failed = handlers.openCanvas(effect.id);
+      if (failed) return failed;
+    } else if (effect.type === 'renameCanvas') handlers.renameCanvas(effect.id, effect.name);
+    else if (effect.type === 'deleteCanvas') {
+      const failed = handlers.deleteCanvas(effect.id);
+      if (failed) return failed;
+    } else if (effect.type === 'openExample') {
+      const failed = handlers.openExample(effect.id);
+      if (failed) return failed;
+    } else if (effect.type === 'undo') {
+      const failed = handlers.undo();
+      if (failed) return failed;
+    } else if (effect.type === 'redo') {
+      const failed = handlers.redo();
+      if (failed) return failed;
+    } else if (effect.type === 'setBed') handlers.setBed(effect.bed);
+    else if (effect.type === 'regionSample') {
+      const failed = await handlers.regionSample(effect.id, effect.sample);
+      if (failed) return failed;
+    } else {
       const unreachable: never = effect;
       return `The canvas cannot apply ${unreachable}.`;
     }
@@ -95,7 +131,8 @@ export function useDeck(handlers: DeckHandlers): DeckStatus {
       if ('error' in planned) return { ok: false, error: planned.error };
       const failed = await apply(ref.current, planned.effects);
       if (failed) return { ok: false, error: failed };
-      return { ok: true, text: planned.text };
+      const text = planned.reread ? `${planned.text}\n\n${renderScene(ref.current.snapshot())}` : planned.text;
+      return { ok: true, text };
     }, setStatus);
     return () => deck.close();
   }, []);

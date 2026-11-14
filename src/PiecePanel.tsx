@@ -76,12 +76,12 @@ export function PiecePanel({ rootHz, scaleId, counts, loops, cycle, bpm, binding
   const { canvas, snap } = useSettings();
   return (
     <div className="inspector">
-      <div className="inspector-title" data-n="00">
+      <div className="inspector-title">
         {canvasName}
       </div>
       <div className="meter" aria-label="Piece size">
-        {COUNTS.map(([key, label], index) => (
-          <div key={key} className="meter-cell" data-n={String(index + 1).padStart(2, '0')}>
+        {COUNTS.map(([key, label]) => (
+          <div key={key} className="meter-cell">
             <span className="meter-value">{counts[key]}</span>
             <span className="meter-label">{label}</span>
           </div>

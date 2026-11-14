@@ -119,9 +119,10 @@ export function withCurrentPiece(file: LibraryFile, piece: Piece, now = Date.now
   };
 }
 
-export function addCanvas(file: LibraryFile, fresh: Piece, now = Date.now()): LibraryFile | null {
+export function addCanvas(file: LibraryFile, fresh: Piece, now = Date.now(), name?: string): LibraryFile | null {
   if (file.canvases.length >= MAX_CANVASES) return null;
-  const canvas: SavedCanvas = { id: newId('c'), name: nextCanvasName(file.canvases), updatedAt: now, piece: fresh };
+  const fallback = nextCanvasName(file.canvases);
+  const canvas: SavedCanvas = { id: newId('c'), name: name === undefined ? fallback : canvasName(name, fallback), updatedAt: now, piece: fresh };
   return { currentId: canvas.id, canvases: [canvas, ...file.canvases] };
 }
 

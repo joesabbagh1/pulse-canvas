@@ -1,3 +1,5 @@
+import type { Bed } from '../bed';
+import type { SampleRef } from '../engine/samples';
 import type { DeckBlock, DeckFx, DeckGroove, DeckLink, DeckMix, DeckRegion, DeckWave } from './scene';
 import type { Take } from '../takes';
 
@@ -36,6 +38,16 @@ export type DeckEffect =
   | { type: 'recordStart' }
   | { type: 'recordStop' }
   | { type: 'saveTake'; take: Take }
-  | { type: 'placeTake'; take: Take };
+  | { type: 'placeTake'; take: Take }
+  | { type: 'newCanvas'; name: string }
+  | { type: 'openCanvas'; id: string }
+  | { type: 'renameCanvas'; id: string; name: string }
+  | { type: 'deleteCanvas'; id: string }
+  | { type: 'openExample'; id: string }
+  | { type: 'undo' }
+  | { type: 'redo' }
+  | { type: 'setBed'; bed: Bed | null }
+  | { type: 'regionSample'; id: string; sample: SampleRef | null };
 
-export type DeckPlan = { error: string } | { effects: DeckEffect[]; text: string };
+/** `reread` asks the page to look again after applying, because the next piece was not in the snapshot. */
+export type DeckPlan = { error: string } | { effects: DeckEffect[]; text: string; reread?: boolean };

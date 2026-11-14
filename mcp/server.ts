@@ -15,7 +15,7 @@ import { DECK_PORT, DeckSession } from '../src/deck/session.ts';
 
 const session = new DeckSession();
 
-const INSTRUCTIONS = `You are playing a Pulse Canvas, and you can also build it. Distance is time: a link's length in beats is how long a pulse takes to travel it. Look first and use the ids it returns. catalog lists instruments and scales. add_block, edit_block, link, edit_link, remove, add_region, edit_region, tune and wave change the piece. play_instrument plays notes on an instrument, outside the pulse graph. record starts and stops a WAV of everything heard. take stores a performance and can place it on the canvas as linked blocks. transport, hit, mix, nudge and stretch perform the canvas. Pressing Play in the browser once is required before you can make sound.`;
+const INSTRUCTIONS = `You are playing a Pulse Canvas, and you can also build it. Distance is time: a link's length in beats is how long a pulse takes to travel it. Look first and use the ids it returns. catalog lists instruments and scales. add_block, edit_block, link, edit_link, remove, add_region, edit_region, tune and wave change the piece. wave points redraw a cycle or a cutoff. new_canvas, open_canvas, rename_canvas and delete_canvas change which canvas is open. examples and open_example load a ready-made piece into the open canvas. undo and redo step through edits. bed edits the background once a file is loaded in the browser, and sample copies or clears a region's audio file. play_instrument plays notes on an instrument, outside the pulse graph. record starts and stops a WAV of everything heard. take stores a performance and can place it on the canvas as linked blocks. transport, hit, mix, nudge and stretch perform the canvas. Pressing Play in the browser once is required before you can make sound.`;
 
 function send(res: ServerResponse, status: number, body: unknown) {
   const json = JSON.stringify(body);
@@ -117,10 +117,102 @@ server.registerTool(
   {
     title: 'Look at the canvas',
     description:
-      'See the open Pulse Canvas: tempo, whether it is playing, regions (mixer channels), blocks, links and loops. A link length in beats is how long a pulse takes to travel it. Call this before changing anything, and use the ids it returns.',
+      'See the open Pulse Canvas: tempo, whether it is playing, the other canvases, regions (mixer channels), blocks, links, loops, waves, and the background. A link length in beats is how long a pulse takes to travel it. Call this before changing anything, and use the ids it returns.',
     annotations: { readOnlyHint: true },
   },
   async () => call({ op: 'look' }),
+);
+
+server.registerTool(
+  'new_canvas',
+  {
+    title: 'Create a new canvas',
+    description:
+      'Save the open canvas and open a new empty one. The piece you had stays in the list. Pass a name, or leave it and the canvas is named Canvas, Canvas 2, and so on. The new canvas keeps the current tempo, snap and tuning, and has one start block. At most 40 canvases.',
+    inputSchema: {
+      name: z.string().optional().describe('Name for the new canvas. Omit to pick the next Canvas name.'),
+    },
+  },
+  async ({ name }) => call({ op: 'new_canvas', ...(name !== undefined ? { name } : {}) }),
+);
+
+server.registerTool(
+  'open_canvas',
+  {
+    title: 'Open a canvas',
+    description: 'Open a canvas from this browser by its name or id. The one you leave stays in the list. Look lists them.',
+    inputSchema: {
+      canvas: z.string().describe('Canvas name or id.'),
+    },
+  },
+  async ({ canvas }) => call({ op: 'open_canvas', canvas }),
+);
+
+server.registerTool(
+  'rename_canvas',
+  {
+    title: 'Rename a canvas',
+    description: 'Rename a canvas. Omit canvas to rename the one that is open.',
+    inputSchema: {
+      name: z.string().describe('The new name.'),
+      canvas: z.string().optional().describe('Canvas name or id. Omit for the open canvas.'),
+    },
+  },
+  async ({ name, canvas }) => call({ op: 'rename_canvas', name, ...(canvas !== undefined ? { canvas } : {}) }),
+);
+
+server.registerTool(
+  'delete_canvas',
+  {
+    title: 'Delete a canvas',
+    description:
+      'Delete a canvas from this browser. Omit canvas to delete the one that is open. The last canvas is replaced by a blank one, so the list is never empty. This is not undo.',
+    annotations: { destructiveHint: true },
+    inputSchema: {
+      canvas: z.string().optional().describe('Canvas name or id. Omit for the open canvas.'),
+    },
+  },
+  async ({ canvas }) => call({ op: 'delete_canvas', ...(canvas !== undefined ? { canvas } : {}) }),
+);
+
+server.registerTool(
+  'examples',
+  {
+    title: 'List examples',
+    description: 'List the ready-made pieces. open_example loads one into the canvas that is open.',
+    annotations: { readOnlyHint: true },
+  },
+  async () => call({ op: 'examples' }),
+);
+
+server.registerTool(
+  'open_example',
+  {
+    title: 'Open an example',
+    description: 'Load an example into the canvas that is open, replacing what is there. Undo brings the piece back. Pass a title or an id from examples.',
+    inputSchema: {
+      example: z.string().describe('Example title or id, such as The tour or techno.'),
+    },
+  },
+  async ({ example }) => call({ op: 'open_example', example }),
+);
+
+server.registerTool(
+  'undo',
+  {
+    title: 'Undo',
+    description: 'Undo the last edit on the open canvas. Nothing to undo when the piece has not changed.',
+  },
+  async () => call({ op: 'undo' }),
+);
+
+server.registerTool(
+  'redo',
+  {
+    title: 'Redo',
+    description: 'Redo an edit that was just undone.',
+  },
+  async () => call({ op: 'redo' }),
 );
 
 server.registerTool(
@@ -373,13 +465,18 @@ server.registerTool(
   {
     title: 'Draw or change a wave',
     description:
-      'Add a saw, square, sine or decay stamp. A cycle replaces a tone. Decay is a cutoff motion whose width is the loop, in beats. Aim it at an instrument, or leave it for the region. Pass wave to move one (dx, dy in beats), retarget it, or remove it. instrument region clears the aim.',
+      'Add a saw, square, sine or decay stamp. A cycle replaces a tone. Decay is a cutoff motion whose width is the loop, in beats. Aim it at an instrument, or leave it for the region. Pass wave to move one (dx, dy in beats), redraw it, retarget it, or remove it. points are the drawing in beats, the same axes as blocks: right is +x and down is +y. About 0.3 beats above and below the line is full scale. At least 2 points, at most 64. role is cycle or motion. instrument region clears the aim.',
     inputSchema: {
       stamp: z.enum(['saw', 'square', 'sine', 'decay']).optional(),
       x: z.number().optional(),
       y: z.number().optional(),
       instrument: z.string().optional(),
       wave: z.string().optional().describe('Id of a wave to change.'),
+      role: z.enum(['cycle', 'motion']).optional(),
+      points: z
+        .array(z.object({ x: z.number().describe('Beats to the right.'), y: z.number().describe('Beats down the canvas. Up is negative.') }))
+        .optional()
+        .describe('Replace the drawing. At least 2 points.'),
       dx: z.number().optional(),
       dy: z.number().optional(),
       remove: z.boolean().optional(),
@@ -395,6 +492,47 @@ const note = z.object({
   at: z.number().optional().describe('When it starts, in beats from now. Omit to play notes in a row.'),
   velocity: z.number().optional().describe('Loudness, 0 to 1.'),
 });
+
+server.registerTool(
+  'bed',
+  {
+    title: 'Edit the background',
+    description:
+      'Change the background file that plays behind the piece. A file has to be loaded in the browser first; this cannot pick one. level is 0 to 1 for the whole file. clear removes it. whole plays the file from beat 0 as one cut. clip is a cut id from look; with one cut you can omit it. beat moves a cut, in beats. trim is start or end, and delta is how far that edge moves, in beats. split cuts it at the playhead while playing, or in half when stopped. duplicate copies it. remove deletes that cut. mute, gain (0 to 1), fadeIn and fadeOut (seconds) shape a cut. Split, duplicate, remove and whole are one at a time.',
+    inputSchema: {
+      level: z.number().optional().describe('Level of the whole file, 0 to 1.'),
+      clear: z.boolean().optional().describe('Remove the background.'),
+      whole: z.boolean().optional().describe('One cut of the whole file from beat 0.'),
+      clip: z.string().optional().describe('Cut id. Omit when there is only one.'),
+      beat: z.number().optional().describe('Move the cut to this beat.'),
+      trim: z.enum(['start', 'end']).optional(),
+      delta: z.number().optional().describe('How far the trimmed edge moves, in beats.'),
+      split: z.boolean().optional(),
+      duplicate: z.boolean().optional(),
+      remove: z.boolean().optional().describe('Remove this cut.'),
+      mute: z.boolean().optional(),
+      gain: z.number().optional().describe('Cut gain, 0 to 1.'),
+      fadeIn: z.number().optional().describe('Fade in, in seconds.'),
+      fadeOut: z.number().optional().describe('Fade out, in seconds.'),
+    },
+  },
+  async (args) => call({ op: 'bed', ...args }),
+);
+
+server.registerTool(
+  'sample',
+  {
+    title: 'Set a region sample',
+    description:
+      'Make a region\'s tones play an audio file that is already in this browser, or clear it so they play the synth again. from is another region\'s name or id, or bed for the background. A new file is loaded from the page, not from here.',
+    inputSchema: {
+      region: z.string().describe('Region id, name, or performance key.'),
+      from: z.string().optional().describe('Region to copy from, or bed.'),
+      clear: z.boolean().optional().describe('Remove the region\'s sample.'),
+    },
+  },
+  async (args) => call({ op: 'sample', ...args }),
+);
 
 server.registerTool(
   'play_instrument',

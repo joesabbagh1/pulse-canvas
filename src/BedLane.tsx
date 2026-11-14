@@ -15,6 +15,7 @@ import type { Engine } from './engine/engine';
 import { formatBeats } from './engine/geometry';
 import { newId } from './piece';
 import { clockTime } from './TopBar';
+import { token, useTheme } from './ui/theme';
 
 const BASE_PX = 40;
 const LANE_H = 72;
@@ -30,16 +31,21 @@ interface Props {
   engine: Engine;
   onChange: (bed: Bed | null) => void;
   onLoad: (file: File) => void;
+  /** Fetches a pasted YouTube URL through the dev server's converter. Throws with a message a person can read. */
+  onLoadUrl: (url: string) => Promise<void>;
 }
 
-export function BedLane({ bed, peaks, missing, bpm, snap, playing, engine, onChange, onLoad }: Props) {
+export function BedLane({ bed, peaks, missing, bpm, snap, playing, engine, onChange, onLoad, onLoadUrl }: Props) {
   const [open, setOpen] = useState(bed !== null);
   const [selected, setSelected] = useState<string | null>(null);
   const [zoom, setZoom] = useState(1);
   const [drag, setDrag] = useState<Bed | null>(null);
+  const [url, setUrl] = useState('');
+  const [urlBusy, setUrlBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const draft = useRef<Bed | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [theme] = useTheme();
   const headRef = useRef<HTMLDivElement>(null);
   const secondsPerBeat = 60 / bpm;
   const px = BASE_PX * zoom;
@@ -68,11 +74,11 @@ export function BedLane({ bed, peaks, missing, bpm, snap, playing, engine, onCha
     canvas.height = Math.floor(LANE_H * dpr);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, width, LANE_H);
-    ctx.fillStyle = '#101413';
+    ctx.fillStyle = token('--well');
     ctx.fillRect(0, 0, width, LANE_H);
-    ctx.strokeStyle = '#24302c';
-    ctx.fillStyle = '#6d7a74';
-    ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace';
+    ctx.strokeStyle = token('--faint');
+    ctx.fillStyle = token('--muted');
+    ctx.font = "10px 'Azeret Mono', ui-monospace, SFMono-Regular, Menlo, monospace";
     ctx.beginPath();
     const step = px >= 36 ? 1 : 4;
     for (let beat = 0; beat * px < width; beat += step) {
@@ -91,8 +97,8 @@ export function BedLane({ bed, peaks, missing, bpm, snap, playing, engine, onCha
       const w = Math.max(2, clipBeats(item, secondsPerBeat) * px);
       const from = Math.floor((item.offset / file.duration) * buckets);
       const to = Math.max(from + 1, Math.ceil(((item.offset + item.seconds) / file.duration) * buckets));
-      ctx.fillStyle = item.mute ? '#3a4642' : item.id === selected ? '#3ee0c5' : '#1f8f7e';
-      ctx.globalAlpha = item.mute ? 0.45 : 0.9;
+      ctx.fillStyle = item.mute ? token('--faint') : item.id === selected ? token('--ink') : token('--muted');
+      ctx.globalAlpha = item.mute ? 0.6 : 0.9;
       for (let i = from; i < to && i < buckets; i++) {
         const t = (i - from) / (to - from);
         const min = peaks[i * 2];
@@ -102,7 +108,7 @@ export function BedLane({ bed, peaks, missing, bpm, snap, playing, engine, onCha
       }
       ctx.globalAlpha = 1;
     }
-  }, [shown, peaks, px, secondsPerBeat, width, selected]);
+  }, [shown, peaks, px, secondsPerBeat, width, selected, theme]);
 
   useEffect(() => {
     if (!playing) {
@@ -150,6 +156,20 @@ export function BedLane({ bed, peaks, missing, bpm, snap, playing, engine, onCha
     onChange(next);
   }
 
+  async function importFromYouTube() {
+    const target = url.trim();
+    if (!target || urlBusy) return;
+    setUrlBusy(true);
+    try {
+      await onLoadUrl(target);
+      setUrl('');
+    } catch {
+      // The paste handler already said what went wrong.
+    } finally {
+      setUrlBusy(false);
+    }
+  }
+
   function split() {
     if (!bed || !clip) return;
     const into = playing ? (engine.currentBeat() - clip.beat) * secondsPerBeat : clip.seconds / 2;
@@ -181,6 +201,25 @@ export function BedLane({ bed, peaks, missing, bpm, snap, playing, engine, onCha
         <button type="button" onClick={() => fileRef.current?.click()}>
           {bed ? 'Replace…' : 'Load a file…'}
         </button>
+        <form
+          className="bed-url"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void importFromYouTube();
+          }}
+        >
+          <input
+            value={url}
+            placeholder={urlBusy ? 'Fetching from YouTube…' : 'or paste a YouTube URL'}
+            aria-label="YouTube URL"
+            spellCheck={false}
+            disabled={urlBusy}
+            onChange={(event) => setUrl(event.target.value)}
+          />
+          <button type="submit" disabled={urlBusy || !url.trim()}>
+            {urlBusy ? 'Loading…' : 'Import'}
+          </button>
+        </form>
         {bed && (
           <>
             <span className={`bed-name${missing ? ' warn' : ''}`} title={bed.sample.name}>

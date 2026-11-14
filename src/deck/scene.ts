@@ -78,6 +78,28 @@ export interface DeckRegion {
   mix: DeckMix;
   fx: DeckFx;
   groove: DeckGroove;
+  /** Audio file the region's tones play, when one is set. */
+  sample?: { id: string; name: string };
+}
+
+export interface DeckBedClip {
+  id: string;
+  beat: number;
+  offset: number;
+  seconds: number;
+  gain: number;
+  fadeIn: number;
+  fadeOut: number;
+  mute: boolean;
+}
+
+export interface DeckBed {
+  name: string;
+  sampleId: string;
+  duration: number;
+  level: number;
+  missing?: boolean;
+  clips: DeckBedClip[];
 }
 
 export interface DeckInput {
@@ -98,6 +120,13 @@ export interface DeckInput {
   waves?: DeckWave[];
   recording?: boolean;
   takes?: { id: string; name: string; instrument: string; notes: { beat: number; degree: number; beats: number; velocity: number }[] }[];
+  /** Every canvas in this browser. The open one is `canvasId`, or else `canvasName`. */
+  canvasId?: string;
+  canvases?: { id: string; name: string }[];
+  /** Null when the piece has no background. Absent when the caller didn't say. */
+  bed?: DeckBed | null;
+  canUndo?: boolean;
+  canRedo?: boolean;
 }
 
 export function blockName(kind: string) {
@@ -164,7 +193,8 @@ function regionLine(region: DeckRegion) {
   const key = region.key ? ` · key ${region.key.toUpperCase()}` : '';
   const tuning = region.scaleName ? ` · ${region.scaleName}${region.rootHz ? ` · ${rootName(region.rootHz)}` : ''}` : '';
   const box = ` · at ${place(region.x)}, ${place(region.y)} · ${place(region.w)} by ${place(region.h)}`;
-  return `${region.name} (${region.id})${tuning}${key} · ${mix.mute ? 'muted' : 'on'} · ${formatLevel(mix.level)} · ${formatPan(mix.pan)} · tone ${fx.tone >= 0.99 ? 'open' : `${Math.round(fx.tone * 100)}% open`} · ${echo} · reverb ${Math.round(fx.reverb * 100)}%${drive}${pump} · ${swing}${human}${box}`;
+  const sample = region.sample ? ` · sample "${region.sample.name}"` : '';
+  return `${region.name} (${region.id})${tuning}${key} · ${mix.mute ? 'muted' : 'on'} · ${formatLevel(mix.level)} · ${formatPan(mix.pan)} · tone ${fx.tone >= 0.99 ? 'open' : `${Math.round(fx.tone * 100)}% open`} · ${echo} · reverb ${Math.round(fx.reverb * 100)}%${drive}${pump} · ${swing}${human}${sample}${box}`;
 }
 
 function rootName(hz: number) {
@@ -237,6 +267,8 @@ export function renderScene(input: DeckInput): string {
   const state = input.playing ? `playing, beat ${input.beat}` : 'stopped';
   const tuning = input.scaleName ? ` · ${input.scaleName}${input.rootHz ? ` · ${rootName(input.rootHz)}` : ''}` : '';
   const lines = [`${input.canvasName} · ${input.bpm} bpm · ${state}${input.recording ? ' · recording' : ''}${input.snap ? ' · snap ¼' : ''}${tuning}`];
+  const canvases = canvasLine(input);
+  if (canvases) lines.push(canvases);
   const cycle = cycleLine(input);
   if (cycle) lines.push(cycle);
   lines.push('');
@@ -268,7 +300,8 @@ export function renderScene(input: DeckInput): string {
       const at = { x: center.x / wave.points.length, y: center.y / wave.points.length };
       const who = wave.instrument ? blockName(wave.instrument) : 'the region tone';
       const width = Math.max(...wave.points.map((point) => point.x)) - Math.min(...wave.points.map((point) => point.x));
-      lines.push(`- ${wave.id} · ${wave.role} · ${who} · ${beatCount(width / PX_PER_BEAT)} wide · at ${place(at.x)}, ${place(at.y)}`);
+      const points = wave.points.map((point) => `${place(point.x)},${place(point.y)}`).join(' ');
+      lines.push(`- ${wave.id} · ${wave.role} · ${who} · ${beatCount(width / PX_PER_BEAT)} wide · at ${place(at.x)}, ${place(at.y)} · points ${points}`);
     }
   }
   const takes = input.takes ?? [];
@@ -277,7 +310,36 @@ export function renderScene(input: DeckInput): string {
     lines.push('Takes (a recorded performance; place puts it on the canvas as linked blocks):');
     for (const take of takes) lines.push(`- ${take.name} (${take.id}) · ${blockName(take.instrument)} · ${take.notes.length} ${take.notes.length === 1 ? 'note' : 'notes'}`);
   }
+  if (input.bed !== undefined) {
+    lines.push('');
+    lines.push(bedLine(input.bed, input.bpm));
+  }
   lines.push('');
   lines.push('Right is +x. Down the canvas is +y. Moving a block changes how long its links take.');
+  return lines.join('\n');
+}
+
+function canvasLine(input: DeckInput) {
+  const list = input.canvases;
+  if (!list?.length) return '';
+  const bits = list.map((canvas) => {
+    const open = input.canvasId ? canvas.id === input.canvasId : canvas.name === input.canvasName;
+    return `${canvas.name} (${canvas.id}${open ? ', open' : ''})`;
+  });
+  return `Canvases: ${bits.join(', ')}`;
+}
+
+function bedLine(bed: DeckBed | null, bpm: number) {
+  if (!bed) return 'Background: none. Load a file in the browser to play one behind the piece.';
+  const missing = bed.missing ? ' · missing from this browser' : '';
+  const lines = [`Background: ${bed.name} · level ${Math.round(bed.level * 100)}% · ${Math.round(bed.duration * 10) / 10} s${missing}`];
+  if (!bed.clips.length) lines.push('- no cuts. bed whole uses the whole file.');
+  const secondsPerBeat = bpm > 0 ? 60 / bpm : 0;
+  for (const clip of bed.clips) {
+    const long = secondsPerBeat > 0 ? beatCount(clip.seconds / secondsPerBeat) : `${clip.seconds} s`;
+    const gain = clip.gain < 0.999 ? ` · gain ${Math.round(clip.gain * 100)}%` : '';
+    const fades = clip.fadeIn > 0.001 || clip.fadeOut > 0.001 ? ` · fade ${Math.round(clip.fadeIn * 100) / 100}s/${Math.round(clip.fadeOut * 100) / 100}s` : '';
+    lines.push(`- ${clip.id} · at ${beatCount(clip.beat)} · ${long}${clip.mute ? ' · muted' : ''}${gain}${fades}`);
+  }
   return lines.join('\n');
 }

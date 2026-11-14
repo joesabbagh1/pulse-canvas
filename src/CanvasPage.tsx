@@ -31,6 +31,7 @@ import type { Stamp, Wave, WaveRole } from './engine/wave';
 import { Inspector } from './Inspector';
 import type { Loop } from './loops';
 import { PiecePanel } from './PiecePanel';
+import { useTheme } from './ui/theme';
 import type { BlockData, BlockNode, CanvasNode, LinkEdge, RegionData, RegionNode } from './piece';
 
 const nodeTypes = { block: BlockNodeView, region: RegionNodeView };
@@ -107,6 +108,7 @@ interface Props {
   bedMissing: boolean;
   onBed: (bed: Bed | null) => void;
   onLoadBed: (file: File) => void;
+  onLoadUrl: (url: string) => Promise<void>;
 }
 
 /**
@@ -117,6 +119,7 @@ interface Props {
  */
 export function CanvasPage(props: Props) {
   const waves = props.mode === 'waves';
+  const [theme] = useTheme();
   const open = !!(props.selectedBlock || props.selectedRegion || props.selectedLink || props.waveInfo);
   return (
     <>
@@ -157,9 +160,10 @@ export function CanvasPage(props: Props) {
           maxZoom={2.5}
           fitView
           fitViewOptions={{ padding: 0.25 }}
-          colorMode="dark"
+          colorMode={theme}
+          attributionPosition="top-right"
         >
-          <Background variant={BackgroundVariant.Dots} gap={PX_PER_BEAT * GRID} size={1.4} color="#2a2e39" />
+          <Background variant={BackgroundVariant.Dots} gap={PX_PER_BEAT * GRID} size={1.4} color="var(--dot)" />
           <LoopLabels loops={props.loops} blocks={props.blockPositions} />
           <WaveLayer
             waves={props.waves}
@@ -207,6 +211,7 @@ export function CanvasPage(props: Props) {
             engine={props.engine}
             onChange={props.onBed}
             onLoad={props.onLoadBed}
+            onLoadUrl={props.onLoadUrl}
           />
         )}
       </div>

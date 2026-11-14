@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { PX_PER_BEAT } from '../engine/geometry';
+import { MAX_CANVASES } from '../library';
 import { perform } from './plan';
 import type { DeckInput } from './scene';
 
@@ -69,11 +70,65 @@ describe('deck building', () => {
     expect(tuned.text).toContain('snap off');
   });
 
+  it('redraws a wave from points', () => {
+    const withWave = perform(rig(), { op: 'wave', stamp: 'sine', x: 1, y: 0 });
+    if ('error' in withWave) throw new Error(withWave.error);
+    const drawn = perform(rig(), {
+      op: 'wave',
+      wave: 'w1',
+      role: 'motion',
+      points: [
+        { x: 0, y: 0 },
+        { x: 2, y: -0.3 },
+      ],
+    });
+    expect('error' in drawn).toBe(true);
+    const added = withWave.effects[0];
+    if (added.type !== 'addWave') throw new Error('expected a wave');
+    const edited = perform(
+      { ...rig(), waves: [added.wave] },
+      {
+        op: 'wave',
+        wave: added.wave.id,
+        role: 'motion',
+        points: [
+          { x: 0, y: 0 },
+          { x: 2, y: -0.3 },
+        ],
+      },
+    );
+    if ('error' in edited) throw new Error(edited.error);
+    expect(edited.effects[0]).toMatchObject({ type: 'putWave' });
+    if (edited.effects[0].type !== 'putWave') return;
+    expect(edited.effects[0].wave.role).toBe('motion');
+    expect(edited.effects[0].wave.points).toHaveLength(2);
+    expect(edited.text).toContain('2 points');
+    const narrow = perform({ ...rig(), waves: [added.wave] }, { op: 'wave', wave: added.wave.id, points: [{ x: 0, y: 0 }, { x: 0.01, y: 0 }] });
+    expect(narrow).toMatchObject({ error: expect.stringMatching(/too narrow/) });
+  });
+
   it('drops a sine wave', () => {
     const plan = perform(rig(), { op: 'wave', stamp: 'sine', x: 1, y: 0 });
     if ('error' in plan) throw new Error(plan.error);
     expect(plan.effects[0]).toMatchObject({ type: 'addWave' });
     expect(plan.text).toContain('sine cycle');
+  });
+
+  it('opens a new empty canvas and keeps the old name in the reply', () => {
+    const plan = perform({ ...rig(), canvases: [{ id: 'c1', name: 'Night' }] }, { op: 'new_canvas' });
+    if ('error' in plan) throw new Error(plan.error);
+    expect(plan.effects).toEqual([{ type: 'newCanvas', name: 'Canvas' }]);
+    expect(plan.reread).toBe(true);
+    expect(plan.text).toContain('Opened Canvas.');
+    const named = perform(rig(), { op: 'new_canvas', name: '  Night drive  ' });
+    if ('error' in named) throw new Error(named.error);
+    expect(named.effects).toEqual([{ type: 'newCanvas', name: 'Night drive' }]);
+  });
+
+  it('refuses a new canvas once the list is full', () => {
+    const canvases = Array.from({ length: MAX_CANVASES }, (_, i) => ({ id: `c${i}`, name: i === 0 ? 'Canvas' : `Canvas ${i + 1}` }));
+    const plan = perform({ ...rig(), canvases }, { op: 'new_canvas', name: 'One more' });
+    expect(plan).toMatchObject({ error: expect.stringMatching(/40 canvases is the limit/) });
   });
 
   it('lists instruments that match a query', () => {

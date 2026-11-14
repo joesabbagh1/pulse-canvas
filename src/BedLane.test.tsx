@@ -42,6 +42,7 @@ describe('background lane', () => {
           engine={new Engine()}
           onChange={(next) => next && edits.push(next)}
           onLoad={() => {}}
+          onLoadUrl={() => Promise.resolve()}
         />,
       );
     });
@@ -54,5 +55,57 @@ describe('background lane', () => {
     expect(edits.at(-1)?.clips).toHaveLength(2);
     expect(edits.at(-1)?.clips[0].seconds).toBeCloseTo(2);
     expect(edits.at(-1)?.clips[1].offset).toBeCloseTo(2);
+  });
+
+  it('hands a pasted YouTube URL to the loader, holding the button until it lands', async () => {
+    host = document.createElement('div');
+    document.body.appendChild(host);
+    root = createRoot(host);
+    const urls: string[] = [];
+    let release: () => void = () => {};
+    await act(async () => {
+      root.render(
+        <BedLane
+          bed={bed}
+          peaks={new Float32Array([0, 1, -1, 0])}
+          missing={false}
+          bpm={120}
+          snap
+          playing={false}
+          engine={new Engine()}
+          onChange={() => {}}
+          onLoad={() => {}}
+          onLoadUrl={(url) => {
+            urls.push(url);
+            return new Promise<void>((resolve) => {
+              release = resolve;
+            });
+          }}
+        />,
+      );
+    });
+    const input = host.querySelector<HTMLInputElement>('.bed-url input')!;
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+    await act(async () => {
+      setter.call(input, '  https://youtu.be/abc  ');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    const submit = host.querySelector<HTMLButtonElement>('.bed-url button')!;
+    expect(submit.disabled).toBe(false);
+    await act(async () => {
+      host.querySelector<HTMLFormElement>('.bed-url')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+    expect(urls).toEqual(['https://youtu.be/abc']);
+    const busyInput = host.querySelector<HTMLInputElement>('.bed-url input')!;
+    expect(busyInput.disabled).toBe(true);
+    expect(submit.disabled).toBe(true);
+    await act(async () => {
+      release();
+    });
+    const doneInput = host.querySelector<HTMLInputElement>('.bed-url input')!;
+    const doneSubmit = host.querySelector<HTMLButtonElement>('.bed-url button')!;
+    expect(doneInput.disabled).toBe(false);
+    expect(doneInput.value).toBe('');
+    expect(doneSubmit.disabled).toBe(true);
   });
 });

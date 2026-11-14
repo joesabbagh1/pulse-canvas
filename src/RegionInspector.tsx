@@ -90,7 +90,7 @@ export function RegionInspector({ region, takenKeys, onChange, onImportScale, on
 
   return (
     <div className="inspector" style={{ '--c': regionColor(scaleId) } as CSSProperties}>
-      <div className="inspector-title" data-n="01">
+      <div className="inspector-title">
         <span className="swatch" /> Region
       </div>
       <label className="field">

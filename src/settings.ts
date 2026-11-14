@@ -47,7 +47,7 @@ const LEGACY_FLAT: Partial<Record<string, string>> = {
   kick: '#ff6b4a',
   snare: '#e2b15a',
   hat: '#3ccfc1',
-  start: '#f2f2f5',
+  start: 'var(--ink)',
 };
 
 export function blockColor(kind: BlockKind, degree: number, scale: Scale): string {
