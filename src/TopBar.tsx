@@ -8,6 +8,7 @@ const APP_TABS: { route: Route; label: string }[] = [
   { route: 'examples', label: 'Examples' },
   { route: 'guide', label: 'Guide' },
   { route: 'instruments', label: 'Instruments' },
+  { route: 'synth', label: 'Synth' },
 ];
 
 const CANVAS_TABS: { route: Route; label: string }[] = [
@@ -41,6 +42,8 @@ function Icon({ name, solid }: { name: keyof typeof ICONS; solid?: boolean }) {
 
 interface Props {
   route: Route;
+  /** The open canvas, or null when the library is empty. */
+  canvasId: string | null;
   canvasName: string;
   playing: boolean;
   recording: boolean;
@@ -65,7 +68,7 @@ interface Props {
 // Outside a canvas this is the app nav. Inside, it is that canvas's bar:
 // back to the list, which view (notes or waves), and the controls for it.
 export function TopBar(props: Props) {
-  const { route, canvasName, playing, recording, recordedSeconds, bpm, snap, canUndo, canRedo, fileMenu } = props;
+  const { route, canvasId, canvasName, playing, recording, recordedSeconds, bpm, snap, canUndo, canRedo, fileMenu } = props;
   const inside = insideCanvas(route);
   const [theme, setTheme] = useTheme();
   const tabs = useRef<HTMLElement>(null);
@@ -94,7 +97,7 @@ export function TopBar(props: Props) {
         {inside && <span className="canvas-bar-name">{canvasName}</span>}
         <nav className="tabs" aria-label={inside ? 'Canvas' : 'Pages'} ref={tabs}>
           {(inside ? CANVAS_TABS : APP_TABS).map((t) => (
-            <a key={t.route} href={routeHref(t.route)} className={`tab${route === t.route ? ' is-active' : ''}`} aria-current={route === t.route ? 'page' : undefined}>
+            <a key={t.route} href={routeHref(t.route, canvasId)} className={`tab${route === t.route ? ' is-active' : ''}`} aria-current={route === t.route ? 'page' : undefined}>
               {t.label}
             </a>
           ))}

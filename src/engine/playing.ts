@@ -1,4 +1,4 @@
-import type { InstrumentId } from './instruments';
+import { machineById, type InstrumentId } from './instruments';
 import { degreeCents, degreeToHz, describePitch, type Scale } from './tuning';
 
 // How an instrument is played on the Instruments page, and the pitches it can
@@ -291,8 +291,13 @@ export const PLAYING = {
   gunshot: hit('gun'),
 } satisfies { [K in InstrumentId]: Playing };
 
+/** A synth machine plays on a grid, the way the catalog's lead synths do. */
+const MACHINE_BOARD = grid(24, 96, 'keys');
+
 export function playingFor(id: string): Playing | undefined {
-  return (PLAYING as Record<string, Playing>)[id];
+  const known = (PLAYING as Record<string, Playing>)[id];
+  if (known) return known;
+  return machineById(id) ? MACHINE_BOARD : undefined;
 }
 
 /** A sharp, a flat, or a note that sits off 12-tone, so it draws as a raised key. */

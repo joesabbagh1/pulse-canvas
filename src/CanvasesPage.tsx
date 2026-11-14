@@ -3,7 +3,8 @@ import { MAX_CANVASES, type SavedCanvas } from './library';
 
 interface Props {
   canvases: readonly SavedCanvas[];
-  currentId: string;
+  /** The canvas being edited, or null when there is none. */
+  currentId: string | null;
   onOpen: (id: string) => void;
   onCreate: () => void;
   onRename: (id: string, name: string) => void;
@@ -93,18 +94,28 @@ export function CanvasesPage({ canvases, currentId, onOpen, onCreate, onRename, 
             New canvas
           </button>
         </header>
-        <div className="examples-grid">
-          {ordered.map((canvas) => (
-            <CanvasCard
-              key={canvas.id}
-              canvas={canvas}
-              current={canvas.id === currentId}
-              onOpen={() => onOpen(canvas.id)}
-              onRename={(name) => onRename(canvas.id, name)}
-              onDelete={() => onDelete(canvas.id)}
-            />
-          ))}
-        </div>
+        {ordered.length ? (
+          <div className="examples-grid">
+            {ordered.map((canvas) => (
+              <CanvasCard
+                key={canvas.id}
+                canvas={canvas}
+                current={canvas.id === currentId}
+                onOpen={() => onOpen(canvas.id)}
+                onRename={(name) => onRename(canvas.id, name)}
+                onDelete={() => onDelete(canvas.id)}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="canvas-empty">
+            <p>No canvases yet.</p>
+            <p className="muted">A canvas holds one piece: its notes, waves, and takes.</p>
+            <button type="button" className="play" onClick={onCreate}>
+              New canvas
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

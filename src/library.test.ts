@@ -53,24 +53,40 @@ describe('canvas library', () => {
     expect(second.currentId).toBe(second.canvases[0].id);
     expect(second.canvases[1].id).toBe(shelf.currentId);
 
-    const named = renameInLibrary(second, second.currentId, '  Night drive  ');
+    const named = renameInLibrary(second, second.currentId!, '  Night drive  ');
     expect(named.canvases[0].name).toBe('Night drive');
 
     const touched = withCurrentPiece(named, blank(), 30);
     expect(touched.canvases[0].piece.blocks).toHaveLength(1);
     expect(touched.canvases[1].piece.bpm).toBe(shelf.current.bpm);
 
-    const removed = removeFromLibrary(touched, touched.canvases[1].id, blank(), 40);
+    const removed = removeFromLibrary(touched, touched.canvases[1].id);
     expect(removed.opened).toBeNull();
     expect(removed.file.canvases.map((canvas) => canvas.name)).toEqual(['Night drive']);
 
-    const last = removeFromLibrary(removed.file, removed.file.currentId, blank(), 50);
-    expect(last.file.canvases).toHaveLength(1);
-    expect(last.opened?.blocks).toHaveLength(1);
-    expect(last.file.currentId).not.toBe(removed.file.currentId);
+    // Deleting the current canvas opens the one left; deleting the last one empties the list.
+    const next = removeFromLibrary(touched, touched.currentId!);
+    expect(next.opened?.bpm).toBe(shelf.current.bpm);
+    expect(next.file.currentId).toBe(touched.canvases[1].id);
 
-    writeLibrary(storage, last.file);
-    expect(readLibrary(storage)?.canvases).toHaveLength(1);
+    const none = removeFromLibrary(removed.file, removed.file.currentId!);
+    expect(none.opened).toBeNull();
+    expect(none.file.canvases).toHaveLength(0);
+    expect(none.file.currentId).toBeNull();
+
+    writeLibrary(storage, none.file);
+    const reopened = readLibrary(storage);
+    expect(reopened?.canvases).toHaveLength(0);
+    expect(reopened?.currentId).toBeNull();
+  });
+
+  it('opens an emptied library with no canvas', () => {
+    const storage = memory();
+    writeLibrary(storage, { currentId: null, canvases: [] });
+    const shelf = openLibrary(storage, 10);
+    expect(shelf.existed).toBe(true);
+    expect(shelf.canvases).toHaveLength(0);
+    expect(shelf.currentId).toBeNull();
   });
 
   it('names the next canvas from the ones already there', () => {

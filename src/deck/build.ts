@@ -6,6 +6,7 @@ import { PX_PER_BEAT, spanOf } from '../engine/geometry';
 import { INSTRUMENTS, instrumentById, isInstrumentId } from '../engine/instruments';
 import { MAX_PATTERN_CHARS, NEW_PATTERN, compilePattern } from '../engine/pattern';
 import { MAX_DELAY, compile } from '../engine/script';
+import { DEFAULT_PATCH, PRESETS, SYNTH_WAVES, type SynthPatch, type SynthWave } from '../engine/synth';
 import { DEFAULT_SCALE_ID, KEYS, ROOT_HZ, SCALES } from '../engine/tuning';
 import { MAX_WAVE_POINTS, MIN_WAVE_WIDTH, stampOf, type Stamp } from '../engine/wave';
 import { MAX_CANVASES, canvasName, nextCanvasName } from '../library';
@@ -19,6 +20,7 @@ import {
   type DeckBlock,
   type DeckInput,
   type DeckLink,
+  type DeckMachine,
   type DeckRegion,
   type DeckWave,
 } from './scene';
@@ -27,6 +29,7 @@ const MAX_BLOCKS = 2000;
 const MAX_LINKS = 4000;
 const MAX_REGIONS = 200;
 const MAX_WAVES = 400;
+const MAX_MACHINES = 24;
 const MAX_CODE = 4000;
 const MAX_PATTERN = MAX_PATTERN_CHARS;
 const FAR = 1e6;
@@ -63,15 +66,20 @@ function scalesOf(input: DeckInput) {
   return input.scales?.length ? input.scales : SCALES.map((scale) => ({ id: scale.id, name: scale.name }));
 }
 
-export function resolveKind(ref: string): { id: string } | { error: string } {
+export function resolveKind(ref: string, machines: readonly DeckMachine[] = []): { id: string } | { error: string } {
   const query = norm(ref);
   if (!query) return { error: 'Say which instrument, or start.' };
   if (query === 'start') return { id: 'start' };
   if (query === 'pattern') return { id: 'pattern' };
   if (isInstrumentId(query)) return { id: query };
+  const exactMachine = machines.filter((machine) => machine.id === ref || norm(machine.name) === query || (machine.short !== '' && norm(machine.short) === query));
+  if (exactMachine.length === 1) return { id: exactMachine[0].id };
   const exact = INSTRUMENTS.filter((instrument) => norm(instrument.name) === query || (instrument.short !== '' && norm(instrument.short) === query));
   if (exact.length === 1) return { id: exact[0].id };
-  const partial = INSTRUMENTS.filter((instrument) => norm(instrument.name).includes(query) || instrument.id.includes(query));
+  const partial = [
+    ...machines.filter((machine) => norm(machine.name).includes(query) || machine.id.includes(query)),
+    ...INSTRUMENTS.filter((instrument) => norm(instrument.name).includes(query) || instrument.id.includes(query)),
+  ];
   if (partial.length === 1) return { id: partial[0].id };
   if (partial.length > 1) {
     const list = partial
@@ -157,25 +165,35 @@ function blankGroove(): DeckRegion['groove'] {
 function catalog(input: DeckInput, command: Record<string, unknown>): DeckPlan {
   const scales = scalesOf(input);
   const scaleLine = `Scales: ${scales.map((scale) => `${scale.name} (${scale.id})`).join(', ')}.`;
+  const machines = input.machines ?? [];
+  const machineLine = machines.length
+    ? ` Synth machines: ${machines.map((machine) => `${machine.name} (${machine.id})`).join(', ')}.`
+    : '';
   const query = typeof command.query === 'string' ? norm(command.query) : '';
   if (!query) {
     return {
       effects: [],
-      text: `${scaleLine}\n${INSTRUMENTS.length} instruments. Pass a query, like piano, drum or flute. start sends pulses. pattern adds a tone box.`,
+      text: `${scaleLine}\n${INSTRUMENTS.length} instruments. Pass a query, like piano, drum or flute. start sends pulses. pattern adds a tone box.${machineLine}`,
     };
   }
   const found = INSTRUMENTS.filter(
     (instrument) => norm(instrument.name).includes(query) || instrument.id.includes(query) || (instrument.short !== '' && norm(instrument.short).includes(query)),
   ).slice(0, 40);
-  if (!found.length) return { effects: [], text: `Nothing matches "${command.query}". ${scaleLine}` };
-  const lines = found.map((instrument) => `${instrument.id} — ${instrument.name}`);
+  const foundMachines = machines.filter(
+    (machine) => norm(machine.name).includes(query) || machine.id.includes(query) || (machine.short !== '' && norm(machine.short).includes(query)),
+  );
+  const lines = [
+    ...foundMachines.map((machine) => `${machine.id} — ${machine.name} (synth machine)`),
+    ...found.map((instrument) => `${instrument.id} — ${instrument.name}`),
+  ].slice(0, 40);
+  if (!lines.length) return { effects: [], text: `Nothing matches "${command.query}". ${scaleLine}` };
   return { effects: [], text: `${lines.join('\n')}\n\n${scaleLine}` };
 }
 
 function addBlock(input: DeckInput, command: Record<string, unknown>): DeckPlan {
   if (input.blocks.length >= MAX_BLOCKS) return { error: `${MAX_BLOCKS} blocks is the limit.` };
   if (typeof command.kind !== 'string') return { error: 'Say the kind: start, pattern, or an instrument id or name.' };
-  const kind = resolveKind(command.kind);
+  const kind = resolveKind(command.kind, input.machines ?? []);
   if ('error' in kind) return { error: kind.error };
   const from = typeof command.from === 'string' && command.from.trim() ? oneBlock(input, command.from) : undefined;
   if (typeof from === 'string') return { error: from };
@@ -282,7 +300,7 @@ function editBlock(input: DeckInput, command: Record<string, unknown>): DeckPlan
 
   if (command.kind !== undefined) {
     if (typeof command.kind !== 'string') return { error: 'Kind is an instrument id or name, or start.' };
-    const kind = resolveKind(command.kind);
+    const kind = resolveKind(command.kind, input.machines ?? []);
     if ('error' in kind) return { error: kind.error };
     if (kind.id === 'pattern') return { error: 'To make a pattern box, set pattern. kind pattern is only for a new block.' };
     next.kind = kind.id;
@@ -704,7 +722,7 @@ function wave(input: DeckInput, command: Record<string, unknown>): DeckPlan {
     if (typeof by === 'string') return { error: by };
     let instrument: string | undefined;
     if (typeof command.instrument === 'string' && command.instrument.trim() && norm(command.instrument) !== 'region') {
-      const kind = resolveKind(command.instrument);
+      const kind = resolveKind(command.instrument, input.machines ?? []);
       if ('error' in kind) return { error: kind.error };
       if (kind.id === 'start' || kind.id === 'pattern') return { error: 'A wave aims at an instrument, or at the region when you leave it off.' };
       instrument = kind.id;
@@ -759,7 +777,7 @@ function wave(input: DeckInput, command: Record<string, unknown>): DeckPlan {
     delete next.instrument;
     notes.push('aims at the region');
   } else if (typeof command.instrument === 'string' && command.instrument.trim()) {
-    const kind = resolveKind(command.instrument);
+    const kind = resolveKind(command.instrument, input.machines ?? []);
     if ('error' in kind) return { error: kind.error };
     if (kind.id === 'start' || kind.id === 'pattern') return { error: 'A wave aims at an instrument, or at the region.' };
     next.instrument = kind.id;
@@ -791,6 +809,114 @@ function readWavePoints(value: unknown): { x: number; y: number }[] | string {
   return points;
 }
 
+/** The numeric patch fields a synth command may set, with their ranges. */
+const SYNTH_FIELDS: [field: 'cutoff' | 'q' | 'attack' | 'decay' | 'sustain' | 'release' | 'glide' | 'gain', min: number, max: number][] = [
+  ['cutoff', 60, 14000],
+  ['q', 0.1, 18],
+  ['attack', 0, 4],
+  ['decay', 0.01, 4],
+  ['sustain', 0, 1],
+  ['release', 0.01, 6],
+  ['glide', 0, 0.5],
+  ['gain', -30, 0],
+];
+
+/** Patch fields present on the command, layered over `base`; other fields stay. Errors on bad ones rather than silently clamping. */
+function readPatch(command: Record<string, unknown>, base: SynthPatch): SynthPatch | string {
+  const patch: SynthPatch = { ...base };
+  if (command.wave !== undefined) {
+    if (typeof command.wave !== 'string' || !SYNTH_WAVES.includes(command.wave as SynthWave)) return `A wave is ${SYNTH_WAVES.join(', ')}.`;
+    patch.wave = command.wave as SynthWave;
+  }
+  if (command.mode !== undefined) {
+    if (command.mode !== 'poly' && command.mode !== 'mono') return 'Mode is poly or mono.';
+    patch.mode = command.mode;
+  }
+  for (const [field, min, max] of SYNTH_FIELDS) {
+    if (command[field] === undefined) continue;
+    const value = num(command[field], field, min, max);
+    if (typeof value === 'string') return value;
+    patch[field] = value;
+  }
+  return patch;
+}
+
+const synthActions = 'The synth action is list, add, edit or remove.';
+
+function synth(input: DeckInput, command: Record<string, unknown>): DeckPlan {
+  const machines = input.machines ?? [];
+  const action = typeof command.action === 'string' && norm(command.action) ? norm(command.action) : 'list';
+
+  if (action === 'list') {
+    if (!machines.length) return { effects: [], text: 'No synth machines on this canvas yet. synth add makes one from a preset or a patch.' };
+    const lines = machines.map((machine) => `${machine.id} — ${machine.name}: ${machine.patch.mode} ${machine.patch.wave}, cutoff ${Math.round(machine.patch.cutoff)} Hz, q ${machine.patch.q}`);
+    return { effects: [], text: lines.join('\n') };
+  }
+
+  if (action === 'add') {
+    if (machines.length >= MAX_MACHINES) return { error: `${MAX_MACHINES} machines is the limit.` };
+    const name = typeof command.name === 'string' ? command.name.trim().slice(0, 40) : '';
+    if (!name) return { error: 'Give the machine a name: synth add action "add", name "Fog Lead".' };
+    const presetRef = typeof command.preset === 'string' && command.preset.trim() ? norm(command.preset) : '';
+    const preset = PRESETS.find((item) => item.id === presetRef || norm(item.name) === presetRef);
+    if (presetRef && !preset) return { error: `No preset called "${command.preset}". Presets: ${PRESETS.map((item) => `${item.name} (${item.id})`).join(', ')}.` };
+    const patch = readPatch(command, preset ? preset.patch : DEFAULT_PATCH);
+    if (typeof patch === 'string') return { error: patch };
+    const machine: DeckMachine = {
+      id: freshId('syn', machines.map((item) => item.id)),
+      name,
+      short: name.slice(0, 7),
+      hint: preset ? preset.hint : 'A synth machine.',
+      patch,
+    };
+    return done(
+      { ...input, machines: [...machines, machine] },
+      [{ type: 'putMachine', machine }],
+      `Added ${machine.name} (${machine.id}): ${machine.patch.mode} ${machine.patch.wave}. Point blocks at it with edit_block or add_block kind "${machine.id}".`,
+    );
+  }
+
+  if (action === 'edit' || action === 'remove') {
+    const ref = command.machine ?? command.id ?? command.name;
+    if (typeof ref !== 'string' || !ref.trim()) return { error: `Say which machine to ${action}. synth list shows them.` };
+    const query = norm(ref);
+    let found = machines.filter((machine) => machine.id === ref || norm(machine.name) === query || (machine.short !== '' && norm(machine.short) === query));
+    if (!found.length) found = machines.filter((machine) => norm(machine.name).includes(query) || machine.id.includes(query));
+    if (found.length !== 1) {
+      return { error: found.length ? `"${ref}" matches more than one machine. Say the id.` : `No machine called "${ref}". synth list shows them.` };
+    }
+    if (action === 'remove') {
+      const gone = found[0];
+      return done(
+        { ...input, machines: machines.filter((machine) => machine.id !== gone.id) },
+        [{ type: 'dropMachine', id: gone.id }],
+        `Removed ${gone.name} (${gone.id}). Blocks that played it now play the plain tone.`,
+      );
+    }
+    const next = { ...found[0] };
+    const notes: string[] = [];
+    if (typeof command.name === 'string' && command.name.trim() && command.name.trim() !== next.name) {
+      next.name = command.name.trim().slice(0, 40);
+      next.short = next.name.slice(0, 7);
+      notes.push(`named ${next.name}`);
+    }
+    const patch = readPatch(command, next.patch);
+    if (typeof patch === 'string') return { error: patch };
+    if (JSON.stringify(patch) !== JSON.stringify(next.patch)) {
+      next.patch = patch;
+      notes.push('patch updated');
+    }
+    if (!notes.length) return { error: 'Nothing to change. Fields: name, wave, cutoff, q, attack, decay, sustain, release, mode, glide, gain.' };
+    return done(
+      { ...input, machines: machines.map((machine) => (machine.id === next.id ? next : machine)) },
+      [{ type: 'putMachine', machine: next }],
+      `${next.id} (${next.name}): ${notes.join(', ')}.`,
+    );
+  }
+
+  return { error: synthActions };
+}
+
 function shelf(input: DeckInput) {
   return input.canvases?.length ? input.canvases : [{ id: '', name: input.canvasName }];
 }
@@ -811,7 +937,7 @@ function newCanvas(input: DeckInput, command: Record<string, unknown>): DeckPlan
   };
 }
 
-const BUILD_OPS = new Set(['catalog', 'add_block', 'edit_block', 'link', 'edit_link', 'remove', 'add_region', 'edit_region', 'tune', 'wave', 'new_canvas']);
+const BUILD_OPS = new Set(['catalog', 'add_block', 'edit_block', 'link', 'edit_link', 'remove', 'add_region', 'edit_region', 'tune', 'wave', 'new_canvas', 'synth']);
 
 /** Null when `command` is not a building move, so the player can try the performance tools. */
 export function build(input: DeckInput, command: Record<string, unknown>): DeckPlan | null {
@@ -827,5 +953,6 @@ export function build(input: DeckInput, command: Record<string, unknown>): DeckP
   if (op === 'edit_region') return editRegion(input, command);
   if (op === 'tune') return tune(input, command);
   if (op === 'new_canvas') return newCanvas(input, command);
+  if (op === 'synth') return synth(input, command);
   return wave(input, command);
 }

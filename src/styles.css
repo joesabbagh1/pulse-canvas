@@ -1962,6 +1962,27 @@ input.select-search {
   gap: 14px;
 }
 
+/* The list is empty: every canvas was deleted. */
+.canvas-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 56px 20px;
+  background: var(--card);
+  border-radius: 18px;
+  text-align: center;
+}
+
+.canvas-empty p {
+  margin: 0;
+  font-size: 15px;
+}
+
+.canvas-empty .play {
+  margin-top: 10px;
+}
+
 /* A card is a tint, not a frame. */
 .example-card {
   display: flex;
@@ -2954,6 +2975,40 @@ input.canvas-name:hover {
 .hit.is-down {
   background: var(--ink);
   color: var(--on-ink);
+}
+
+/* ---------- synth page ---------- */
+
+/* Patch on the left, playable surface on the right, in the stage under the intro. */
+.synth-workbench {
+  display: flex;
+  flex: 1;
+  gap: 20px;
+  min-height: 0;
+}
+
+.synth-patch {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 10px;
+  width: 300px;
+  overflow: auto;
+  padding: 14px;
+  background: var(--card);
+  border-radius: 16px;
+}
+
+.synth-patch .row {
+  margin-top: 4px;
+}
+
+.synth-player {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
 }
 
 /* ---------- keyboard ---------- */

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { CATEGORIES, INSTRUMENTS, instrumentById, instrumentsIn, isInstrumentId, isKick } from './instruments';
+import { CATEGORIES, INSTRUMENTS, instrumentById, instrumentsIn, isInstrumentId, isKick, machineById, setMachines } from './instruments';
+import { DEFAULT_PATCH, machineInstrument } from './synth';
 
 const builtIns = ['tone', 'pluck', 'bass', 'jawharp', 'khuur', 'kick', 'snare', 'hat'] as const;
 
@@ -192,5 +193,17 @@ describe('instrument catalog', () => {
     expect(isKick('kick-9')).toBe(true);
     expect(isKick('hat-9')).toBe(false);
     expect(isKick('acid')).toBe(false);
+  });
+
+  it('resolves the piece’s machines through the registry', () => {
+    const machine = { id: 'syn-fog', name: 'Fog Lead', short: 'fog', hint: 'misty', patch: DEFAULT_PATCH };
+    expect(instrumentById('syn-fog')).toBeUndefined();
+    setMachines([machineInstrument(machine)]);
+    expect(instrumentById('syn-fog')).toMatchObject({ voice: 'synth', name: 'Fog Lead', pitched: true, steps: true });
+    expect(machineById('syn-fog')?.id).toBe('syn-fog');
+    expect(instrumentById('violin')).toMatchObject({ id: 'violin' });
+    expect(isKick('syn-fog')).toBe(false);
+    setMachines([]);
+    expect(instrumentById('syn-fog')).toBeUndefined();
   });
 });

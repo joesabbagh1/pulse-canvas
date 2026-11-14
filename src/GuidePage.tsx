@@ -279,6 +279,29 @@ const SECTIONS: Section[] = [
     ),
   },
   {
+    id: 'synth',
+    title: 'Synth machines',
+    body: (
+      <>
+        <p>
+          A <b>synth machine</b> is an instrument you design: one wave through a resonant low-pass and an envelope. The{' '}
+          <b>Synth</b> tab lists this canvas's machines, edits their patches, and plays them on a keyboard with takes, the
+          way Instruments does. Blocks play a machine like any instrument: pick it in the block panel under{' '}
+          <b>Synth machines</b>, add one from the dock's Synths tab, and tune the patch right there in the sidebar.
+        </p>
+        <p>
+          <b>Poly</b> machines ring chords. <b>Mono</b> machines fold a chord into its last note and can <b>glide</b>{' '}
+          between notes, the way an acid bass slides. A machine lives in the piece, so a saved file or a shared link
+          carries it.
+        </p>
+        <p>
+          The deck's <b>synth</b> tool builds machines for an agent: <code>synth add "Fog Lead" preset acid</code>, then{' '}
+          <code>synth edit "Fog Lead" cutoff 1400 q 10</code>, then <code>add_block kind "Fog Lead"</code>.
+        </p>
+      </>
+    ),
+  },
+  {
     id: 'agents',
     title: 'Agents',
     body: (

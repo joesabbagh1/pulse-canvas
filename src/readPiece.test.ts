@@ -191,5 +191,54 @@ describe('readPiece', () => {
     expect(readPiece({ ...base, takes: many }).takes).toHaveLength(32);
     expect(readPiece(base).takes).toEqual([]);
   });
+
+  it('fills in machines on pieces saved before they existed', () => {
+    expect(readPiece(base).machines).toEqual([]);
+  });
+
+  it('reads machines, clamps their patches, and drops broken ones', () => {
+    const piece = readPiece({
+      ...base,
+      machines: [
+        {
+          id: 'syn-fog',
+          name: 'Fog Lead',
+          short: 'fog',
+          hint: 'misty',
+          patch: { wave: 'fatsawtooth', cutoff: 99999, q: 99, attack: -1, decay: 9, sustain: 2, release: 0, mode: 'mono', glide: 9, gain: 3 },
+        },
+        { id: 'no-patch', name: 'NoPatch', patch: 'none' },
+        { id: '', name: 'NoId', patch: {} },
+        { id: 'syn-short', patch: {} },
+      ],
+    });
+    expect(piece.machines).toHaveLength(3);
+    expect(piece.machines?.[0]).toMatchObject({ id: 'syn-fog', name: 'Fog Lead', short: 'fog', hint: 'misty' });
+    expect(piece.machines?.[0].patch).toMatchObject({ wave: 'fatsawtooth', cutoff: 14000, q: 18, attack: 0, sustain: 1, release: 0.01, mode: 'mono', glide: 0.5, gain: 0 });
+    expect(piece.machines?.[1]).toMatchObject({ id: 'no-patch', name: 'NoPatch', patch: { wave: 'sawtooth' } });
+    expect(piece.machines?.[2]).toMatchObject({ id: 'syn-short', name: 'Synth' });
+  });
+
+  it('lets blocks, takes and waves name machines, and drops unknown kinds', () => {
+    const machine = { id: 'syn-fog', name: 'Fog Lead', short: 'fog', hint: '', patch: { wave: 'sawtooth', cutoff: 5000, q: 12, attack: 0.01, decay: 0.2, sustain: 0.5, release: 0.3, mode: 'mono', glide: 0.04, gain: -10 } };
+    const piece = readPiece({
+      ...base,
+      machines: [machine],
+      blocks: [tone('a', { kind: 'syn-fog' }), tone('b', { kind: 'syn-gone' }), tone('c')],
+      links: [{ id: 'ac', from: 'a', to: 'c' }],
+      waves: [
+        { id: 'w', role: 'motion', points: [{ x: 0, y: 0 }, { x: 240, y: 0 }], instrument: 'syn-fog' },
+        { id: 'w2', role: 'motion', points: [{ x: 0, y: 0 }, { x: 240, y: 0 }], instrument: 'syn-gone' },
+      ],
+      takes: [
+        { id: 't1', instrument: 'syn-fog', notes: [{ beat: 0, degree: 0, beats: 1, velocity: 1 }] },
+        { id: 't2', instrument: 'syn-gone', notes: [{ beat: 0, degree: 0, beats: 1, velocity: 1 }] },
+      ],
+    });
+    expect(piece.blocks.map((b) => [b.id, b.kind])).toEqual([['a', 'syn-fog'], ['c', 'tone']]);
+    expect(piece.links.map((l) => l.id)).toEqual(['ac']);
+    expect(piece.waves?.map((w) => [w.id, w.instrument])).toEqual([['w', 'syn-fog'], ['w2', undefined]]);
+    expect(piece.takes?.map((take) => [take.id, take.name])).toEqual([['t1', 'Fog Lead']]);
+  });
 });
 

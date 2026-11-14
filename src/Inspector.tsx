@@ -5,10 +5,12 @@ import { GRID, MAX_SPAN, MIN_SPAN, formatBeats, parseLength, spanOf } from './en
 import { PATTERN_REFERENCE, compilePattern, starterPattern } from './engine/pattern';
 import { CATEGORIES, instrumentById, instrumentsIn } from './engine/instruments';
 import { hasPitch, type BlockKind } from './engine/scheduler';
+import type { SynthMachine } from './engine/synth';
 import { describePitch, type Scale, type Tuning } from './engine/tuning';
 import type { WaveRole } from './engine/wave';
 import type { BlockData, BlockNode, PatternFigure, RegionData, RegionNode } from './piece';
 import { RegionInspector } from './RegionInspector';
+import { SynthPatchFields } from './SynthPatchFields';
 import { blockColor, useSettings } from './settings';
 import { Select } from './ui/Select';
 
@@ -23,6 +25,8 @@ interface Props {
   link?: { beats: number; minBeats: number; bends: number; code: string };
   /** A selected drawing. `place` is the region it sounds in; null is the canvas. */
   wave?: { role: WaveRole; beats: number; place: string | null; heard: boolean; sampled: boolean; points: number; instrument: string };
+  /** This piece's synth machines, as choices alongside the catalog. */
+  machines: readonly SynthMachine[];
   playing: boolean;
   onChange: (id: string, patch: Partial<BlockData>) => void;
   onLinkCode: (code: string) => void;
@@ -38,12 +42,22 @@ interface Props {
   onDelete: () => void;
   onWaveRole: (role: WaveRole) => void;
   onWaveInstrument: (id: string) => void;
+  /** Makes a machine from the default patch and returns its id. */
+  onCreateMachine: () => string;
+  onEditMachine: (id: string, patch: Partial<SynthMachine>) => void;
+}
+
+/** The piece's machines as a picker group, with a way to make a new one. */
+function machineGroups(machines: readonly SynthMachine[], onCreate?: () => void) {
+  const group = { label: 'Synth machines', options: machines.map((machine) => ({ value: machine.id, label: machine.name })) };
+  const actions = onCreate ? [{ value: '__new-synth__', label: 'New synth machine…', action: onCreate }] : [];
+  return [group, ...(actions.length ? [{ options: actions }] : [])];
 }
 
 export function Inspector(props: Props) {
   const { node, nodeTuning, region, link, wave, playing, onChange, onLinkCode, onLinkLength, onRegionChange, onImportScale, onRemoveScale, onLoadSample } =
     props;
-  const { onFire, onStraighten, onDelete, onWaveRole, onWaveInstrument, takenKeys } = props;
+  const { onFire, onStraighten, onDelete, onWaveRole, onWaveInstrument, takenKeys, machines, onCreateMachine, onEditMachine } = props;
   const { snap } = useSettings();
 
   if (wave) {
@@ -69,6 +83,7 @@ export function Inspector(props: Props) {
           onChange={onWaveInstrument}
           groups={[
             { options: [{ value: '', label: 'This region' }] },
+            ...machineGroups(machines),
             ...CATEGORIES.map((category) => ({
               label: category.label,
               options: instrumentsIn(category.id).map((inst) => ({ value: inst.id, label: inst.name })),
@@ -151,6 +166,7 @@ export function Inspector(props: Props) {
   const { tuning } = nodeTuning;
   const { kind, degree, every } = node.data;
   const pitch = describePitch(degree, tuning.scale, tuning.rootHz);
+  const machine = machines.find((item) => item.id === kind);
   const set = (patch: Partial<BlockData>) => onChange(node.id, patch);
 
   return (
@@ -166,6 +182,7 @@ export function Inspector(props: Props) {
         onChange={(value) => set(value === 'start' ? { kind: 'start', pattern: undefined, beats: undefined } : { kind: value as BlockKind })}
         groups={[
           { options: [{ value: 'start', label: 'Start' }] },
+          ...machineGroups(machines, () => set({ kind: onCreateMachine() as BlockKind })),
           ...CATEGORIES.map((category) => ({
             label: category.label,
             options: instrumentsIn(category.id).map((inst) => ({ value: inst.id, label: inst.name })),
@@ -173,6 +190,12 @@ export function Inspector(props: Props) {
         ]}
       />
       {kind !== 'start' && instrumentById(kind) && <span className="muted">{instrumentById(kind)?.hint}</span>}
+
+      {machine && (
+        <div className="machine-patch">
+          <SynthPatchFields patch={machine.patch} onChange={(patch) => onEditMachine(machine.id, { patch: { ...machine.patch, ...patch } })} />
+        </div>
+      )}
 
       {hasPitch(kind) && (
         <div className="field">

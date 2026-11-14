@@ -486,6 +486,32 @@ server.registerTool(
   async (args) => call({ op: 'wave', ...args }),
 );
 
+server.registerTool(
+  'synth',
+  {
+    title: 'Manage synth machines',
+    description:
+      "Create, edit, list or remove the canvas's synth machines: user-designed instruments (a wave through a resonant filter and an envelope) that blocks play like any instrument. add takes a name, optionally a preset (acid, pad, bass, pluck, keys) and any patch fields. edit and remove take a machine by name or id. Patch fields: wave (sine, triangle, square, sawtooth, fatsawtooth), cutoff (Hz, 60 to 14000), q (resonance, 0.1 to 18), attack, decay, release (seconds), sustain (0 to 1), mode (poly or mono; mono folds chords into the last note), glide (mono slide, seconds), gain (-30 to 0 dB). Point blocks at a machine with add_block or edit_block kind set to its id.",
+    inputSchema: {
+      action: z.enum(['list', 'add', 'edit', 'remove']).optional(),
+      name: z.string().optional().describe("add: the machine's name. edit or remove: which machine (name, label or id)."),
+      preset: z.string().optional().describe('Starting patch for add: acid, pad, bass, pluck or keys.'),
+      machine: z.string().optional().describe('Machine to edit or remove, by name or id.'),
+      wave: z.enum(['sine', 'triangle', 'square', 'sawtooth', 'fatsawtooth']).optional(),
+      cutoff: z.number().optional().describe('Low-pass cutoff, 60 to 14000 Hz.'),
+      q: z.number().optional().describe('Resonance, 0.1 to 18.'),
+      attack: z.number().optional().describe('Seconds, 0 to 4.'),
+      decay: z.number().optional().describe('Seconds, 0.01 to 4.'),
+      sustain: z.number().optional().describe('0 to 1.'),
+      release: z.number().optional().describe('Seconds, 0.01 to 6.'),
+      mode: z.enum(['poly', 'mono']).optional(),
+      glide: z.number().optional().describe('Mono slide between notes, seconds, 0 to 0.5.'),
+      gain: z.number().optional().describe('Level in dB, -30 to 0.'),
+    },
+  },
+  async (args) => call({ op: 'synth', ...args }),
+);
+
 const note = z.object({
   degree: z.number().describe('Scale degree. 0 is the root.'),
   beats: z.number().describe('How long the note is held, in beats.'),

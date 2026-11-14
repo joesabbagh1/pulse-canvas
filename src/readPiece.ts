@@ -6,6 +6,7 @@ import { MAX_SPAN, MIN_SPAN, spanOf } from './engine/geometry';
 import { MAX_PATTERN_CHARS } from './engine/pattern';
 import { MAX_DELAY } from './engine/script';
 import type { BlockKind } from './engine/scheduler';
+import { clampPatch, type SynthMachine } from './engine/synth';
 import { instrumentById } from './engine/instruments';
 import { DEFAULT_SCALE_ID, ROOT_HZ, type Scale } from './engine/tuning';
 import { MAX_WAVE_POINTS, type WaveRole } from './engine/wave';
@@ -19,7 +20,7 @@ import { MAX_TAKE_BEATS, MAX_TAKE_NOTES, MAX_TAKES, type Take, type TakeNote } f
 // a hostile piece can't make the page grind. Pieces saved by earlier versions,
 // which lack newer fields, get those fields' defaults the same way.
 
-const LIMITS = { blocks: 2000, links: 4000, regions: 200, waves: 400, scales: 100, notes: 1000, bends: 64, code: 4000, text: 200, id: 100 };
+const LIMITS = { blocks: 2000, links: 4000, regions: 200, waves: 400, scales: 100, machines: 24, notes: 1000, bends: 64, code: 4000, text: 200, id: 100 };
 const WAVE_ROLES: WaveRole[] = ['cycle', 'motion'];
 const FAR = 1e6;
 
@@ -86,6 +87,19 @@ function readGroove(v: unknown): Groove {
 /** A performance key: one letter or digit. Anything else would clash with the app's own shortcuts. */
 const readKey = (v: unknown) => (typeof v === 'string' && /^[a-z0-9]$/.test(v) ? v : undefined);
 
+/** A synth machine: the patch fields are clamped wholesale by clampPatch (see engine/synth.ts). */
+function readMachine(v: unknown): SynthMachine | null {
+  if (!isObject(v) || !id(v.id)) return null;
+  const name = text(v.name, 40) || 'Synth';
+  return {
+    id: v.id as string,
+    name,
+    short: text(v.short, 8) || name.slice(0, 7),
+    hint: text(v.hint, LIMITS.text),
+    patch: clampPatch(v.patch),
+  };
+}
+
 function readSample(v: unknown): SampleRef | undefined {
   if (!isObject(v) || typeof v.id !== 'string' || !/^smp-[0-9a-f]{1,64}$/.test(v.id)) return undefined;
   return { id: v.id, name: text(v.name) || 'sample' };
@@ -135,14 +149,14 @@ function readTakeNote(v: unknown): TakeNote | null {
 }
 
 /** A recorded performance. Unknown instruments and notes that aren't notes are dropped. */
-function readTake(v: unknown): Take | null {
+function readTake(v: unknown, machineIds: ReadonlySet<string>, machineNames: ReadonlyMap<string, string>): Take | null {
   if (!isObject(v) || !id(v.id)) return null;
   const instrument = text(v.instrument, LIMITS.id);
   const known = instrument ? instrumentById(instrument) : undefined;
-  if (!known) return null;
+  if (!known && !machineIds.has(instrument)) return null;
   return {
     id: v.id as string,
-    name: text(v.name) || known.name,
+    name: text(v.name) || known?.name || machineNames.get(instrument) || 'Take',
     instrument,
     notes: list(v.notes, MAX_TAKE_NOTES).map(readTakeNote).filter((note): note is TakeNote => note !== null),
   };
@@ -155,9 +169,16 @@ export function readPiece(raw: unknown): Piece {
   }
   const rootHz = num(raw.rootHz, 20, 2000, ROOT_HZ);
 
+  // Machines come first, so blocks, takes and waves can name them.
+  const machines = unique(list(raw.machines, LIMITS.machines).map(readMachine));
+  const machineIds = new Set(machines.map((machine) => machine.id));
+  const machineNames = new Map(machines.map((machine) => [machine.id, machine.name]));
+
   const blocks = unique(
     list(raw.blocks, LIMITS.blocks).map((v) => {
-      if (!isObject(v) || !id(v.id) || (v.kind !== 'start' && !instrumentById(String(v.kind ?? '')))) return null;
+      if (!isObject(v) || !id(v.id)) return null;
+      const kind = String(v.kind ?? '');
+      if (v.kind !== 'start' && !instrumentById(kind) && !machineIds.has(kind)) return null;
       const code = text(v.code, LIMITS.code);
       // A start block only sends pulses out, so it can't hold a pattern.
       const pattern = typeof v.pattern === 'string' && v.kind !== 'start' ? v.pattern.slice(0, MAX_PATTERN_CHARS).replace(/\s+/g, ' ') : undefined;
@@ -229,12 +250,12 @@ export function readPiece(raw: unknown): Piece {
       const points = list(v.points, MAX_WAVE_POINTS).map(point).filter((p) => p !== null);
       if (points.length < 2) return null;
       const instrument = text(v.instrument, LIMITS.id);
-      const known = instrument && instrumentById(instrument) ? instrument : '';
+      const known = instrument && (instrumentById(instrument) || machineIds.has(instrument)) ? instrument : '';
       return { id: v.id as string, role: v.role as WaveRole, points, ...(known ? { instrument: known } : {}) };
     }),
   );
 
-  const takes = unique(list(raw.takes, MAX_TAKES).map(readTake));
+  const takes = unique(list(raw.takes, MAX_TAKES).map((v) => readTake(v, machineIds, machineNames)));
   const bed = readBed(raw.bed);
 
   return {
@@ -244,6 +265,7 @@ export function readPiece(raw: unknown): Piece {
     scaleId: text(raw.scaleId, LIMITS.id, DEFAULT_SCALE_ID),
     rootHz,
     scales: unique(list(raw.scales, LIMITS.scales).map(readScale)),
+    machines,
     blocks,
     links,
     regions,

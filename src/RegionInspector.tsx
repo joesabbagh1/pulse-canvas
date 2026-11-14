@@ -8,6 +8,7 @@ import type { RegionData, RegionNode } from './piece';
 import { KeyField } from './KeyField';
 import { RootPicker, ScalePicker } from './ScalePicker';
 import { regionColor, useSettings } from './settings';
+import { Slider } from './ui/Slider';
 
 const ECHO_TIMES = [0.25, 0.5, 0.75, 1];
 const PUMP_TIMES = [0.25, 0.5, 0.75, 1, 2];
@@ -24,37 +25,6 @@ function formatTone(tone: number) {
   if (tone >= 1) return 'open';
   const hz = toneHz(tone);
   return hz < 1000 ? `${Math.round(hz)} Hz` : `${(hz / 1000).toFixed(1)} kHz`;
-}
-
-interface SliderProps {
-  label: string;
-  value: number;
-  min: number;
-  max: number;
-  step: number;
-  /** Double-clicking the slider puts it back here. */
-  reset: number;
-  format: (v: number) => string;
-  onChange: (v: number) => void;
-}
-
-function Slider({ label, value, min, max, step, reset, format, onChange }: SliderProps) {
-  return (
-    <label className="slider" title="Double-click to reset">
-      <span className="slider-label">{label}</span>
-      <input
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        aria-label={label}
-        onChange={(e) => onChange(Number(e.target.value))}
-        onDoubleClick={() => onChange(reset)}
-      />
-      <span className="value">{format(value)}</span>
-    </label>
-  );
 }
 
 interface Props {

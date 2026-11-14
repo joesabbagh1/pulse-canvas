@@ -5,6 +5,7 @@ import { DEFAULT_FX, DEFAULT_MIX, type BusSettings, type Fx, type Mix } from './
 import { DEFAULT_GROOVE, type Groove } from './engine/groove';
 import type { SampleRef } from './engine/samples';
 import type { BlockKind, GraphBlock, GraphLink } from './engine/scheduler';
+import type { SynthMachine } from './engine/synth';
 import { DEFAULT_SCALE_ID, ROOT_HZ, scaleById, type Scale, type Tuning } from './engine/tuning';
 import type { Wave } from './engine/wave';
 import type { Bed } from './bed';
@@ -92,6 +93,12 @@ export interface Piece extends Settings {
    * the piece has none. The file itself lives in this browser's storage.
    */
   bed?: Bed;
+  /**
+   * The piece's synth machines (see engine/synth.ts): user-editable
+   * instruments blocks can play. Absent on pieces saved before machines
+   * existed; readers fill in `[]`.
+   */
+  machines?: SynthMachine[];
 }
 
 const STORAGE_KEY = 'pulse-canvas:piece:v1';
@@ -172,6 +179,7 @@ export function toPiece(
   waves: Wave[] = [],
   takes?: Take[],
   bed: Bed | null = null,
+  machines: SynthMachine[] = [],
 ): Piece {
   return {
     version: 1,
@@ -200,6 +208,7 @@ export function toPiece(
     waves,
     takes: takes ?? settings.takes ?? [],
     ...(bed ? { bed } : {}),
+    machines,
   };
 }
 
@@ -288,6 +297,7 @@ export function emptyPiece(settings: Settings): Piece {
     regions: [],
     waves: [],
     takes: [],
+    machines: [],
   };
 }
 

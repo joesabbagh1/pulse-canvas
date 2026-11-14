@@ -461,7 +461,8 @@ describe('App', () => {
       await act(() => new Promise((r) => setTimeout(r, 50)));
       expect(blockCount(host)).toBe(11);
       expect(host.querySelector('.confirm')).toBeNull();
-      expect(location.hash).toBe('');
+      // The share fragment is gone, replaced by the canvas route.
+      expect(location.hash).toMatch(/^#\/canvas\//);
       act(() => root.unmount());
     });
 
@@ -732,6 +733,116 @@ describe('App', () => {
       await act(() => new Promise((r) => setTimeout(r, 450)));
       const saved = JSON.parse(localStorage.getItem('pulse-canvas:piece:v1')!);
       expect(saved.regions[0].groove).toEqual({ swing: 0.6, swingGrid: 0.25, humanize: 0 });
+      act(() => root.unmount());
+    });
+  });
+
+  describe('synth machines', () => {
+    const tick = () => act(() => new Promise((r) => setTimeout(r, 10)));
+    // The canvas bar only shows Canvas and Waves; the app tabs appear on any page.
+    const clickTab = async (host: Element, href: string) => {
+      const have = () => [...host.querySelectorAll('a.tab')].map((a) => a.getAttribute('href')).join(', ');
+      if (!host.querySelector(`a.tab[href="${href}"]`)) {
+        const canvases = host.querySelector<HTMLAnchorElement>('a.tab[href="#/canvases"]');
+        if (!canvases) throw new Error(`No canvases tab; tabs are: ${have()}`);
+        await act(async () => void canvases.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true })));
+        await tick();
+      }
+      const target = host.querySelector<HTMLElement>(`a.tab[href="${href}"]`);
+      if (!target) throw new Error(`No tab ${href}; tabs are: ${have()}`);
+      await act(async () => void target.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true })));
+    };
+    const clickNode = (host: Element, selector: string) =>
+      act(async () => host.querySelector(selector)!.closest('.react-flow__node')!.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    const setRange = (el: HTMLInputElement, value: string) =>
+      act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(el, value);
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+
+    it('opens the Synth tab, makes a machine from a preset, and autosaves it', async () => {
+      const { host, root } = await mount();
+      await clickTab(host, '#/synth');
+      await tick();
+      expect(host.querySelector('.synth-page')).not.toBeNull();
+      expect(host.querySelector('.synth-page h1')!.textContent).toBe('Synth');
+      expect(host.textContent).toContain('No machines yet');
+
+      await act(async () => button(host, 'Acid lead').click());
+      await tick();
+      expect(host.querySelectorAll('.instrument-choice')).toHaveLength(5 + 1);
+      expect(host.querySelector('.synth-patch')).not.toBeNull();
+      expect(host.querySelector('.instrument-surface')).not.toBeNull();
+
+      await act(() => new Promise((r) => setTimeout(r, 450)));
+      const saved = JSON.parse(localStorage.getItem('pulse-canvas:piece:v1')!);
+      expect(saved.machines).toHaveLength(1);
+      expect(saved.machines[0]).toMatchObject({ name: 'Acid lead', patch: { mode: 'mono', wave: 'sawtooth' } });
+      act(() => root.unmount());
+    });
+
+    it('edits the patch on the page and lands it in the saved piece', async () => {
+      const { host, root } = await mount();
+      await clickTab(host, '#/synth');
+      await tick();
+      await act(async () => button(host, 'Saw pad').click());
+      await tick();
+
+      const name = host.querySelector<HTMLInputElement>('.synth-page input[aria-label="Machine name"]')!;
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(name, 'Fog Bank');
+        name.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      const cutoff = host.querySelector<HTMLInputElement>('.synth-patch input[aria-label="Cutoff"]')!;
+      await setRange(cutoff, '0.9');
+
+      await act(() => new Promise((r) => setTimeout(r, 450)));
+      const saved = JSON.parse(localStorage.getItem('pulse-canvas:piece:v1')!);
+      expect(saved.machines[0].name).toBe('Fog Bank');
+      expect(saved.machines[0].short).toBe('Fog Ban');
+      expect(saved.machines[0].patch.cutoff).toBeGreaterThan(8000);
+      act(() => root.unmount());
+    });
+
+    it('deletes a machine after asking', async () => {
+      const { host, root } = await mount();
+      await clickTab(host, '#/synth');
+      await tick();
+      await act(async () => button(host, 'Acid lead').click());
+      await tick();
+      await act(async () => button(host, 'Delete machine').click());
+      const confirm = [...document.querySelectorAll('.confirm button')].find((b) => b.textContent === 'Delete') as HTMLButtonElement;
+      await act(async () => confirm.click());
+      await tick();
+      expect(host.textContent).toContain('No machines yet');
+      act(() => root.unmount());
+    });
+
+    it('a block can play a machine, edited from the sidebar', async () => {
+      // Changing a block's instrument auditions it; there is no audio here.
+      vi.spyOn(Engine.prototype, 'audition').mockResolvedValue();
+      const { host, root } = await mount();
+      await clickNode(host, '.react-flow__node-block');
+      await choose(host, 'Instrument', 'New synth machine…');
+      await tick();
+      expect(host.querySelector('.machine-patch')).not.toBeNull();
+
+      await act(() => new Promise((r) => setTimeout(r, 450)));
+      const saved = JSON.parse(localStorage.getItem('pulse-canvas:piece:v1')!);
+      expect(saved.machines).toHaveLength(1);
+      const kind = saved.machines[0].id;
+      expect(saved.blocks.some((b: { kind: string }) => b.kind === kind)).toBe(true);
+
+      // The patch fields edit the machine itself.
+      const attack = host.querySelector<HTMLInputElement>('.machine-patch input[aria-label="Attack"]')!;
+      await setRange(attack, '0.5');
+      await act(() => new Promise((r) => setTimeout(r, 450)));
+      const saved2 = JSON.parse(localStorage.getItem('pulse-canvas:piece:v1')!);
+      expect(saved2.machines[0].patch.attack).toBeCloseTo(0.5);
+
+      // The dock's Synths tab offers the machine for new blocks.
+      await addInstrument(host, 'Synths', 'Synth');
+      expect(host.querySelectorAll('.react-flow__node-block')).toHaveLength(demoPiece().blocks.length + 1);
       act(() => root.unmount());
     });
   });

@@ -13,7 +13,10 @@ import { scaleById, type Tuning } from './tuning';
 // This class is pure timing logic in beats. It never touches audio; whoever
 // owns it turns each hit into sound via the onHit callback.
 
-export type BlockKind = 'start' | InstrumentId;
+// Machine ids (the piece's synth machines) are dynamic strings, so a block
+// kind is anything the instrument lookup resolves — 'start', a catalog id, or
+// a registered machine.
+export type BlockKind = 'start' | InstrumentId | string;
 
 /** Plays a scale degree and can step up when a link grows a new block. */
 export function isMelodic(kind: BlockKind) {
@@ -48,7 +51,7 @@ export interface GraphBlock extends Tuning {
 }
 
 /** Voices that hold a note for as long as they're told to. Plucks, mallets and drums ring out on their own. */
-const HELD_VOICES = new Set(['sustain', 'bow', 'blow', 'tone', 'bass', 'khuur', 'acid']);
+const HELD_VOICES = new Set(['sustain', 'bow', 'blow', 'tone', 'bass', 'khuur', 'acid', 'synth']);
 
 /** The block as one note of its pattern plays it, and how long that note lasts. */
 export function patternHit(block: GraphBlock, note: PatternNote, span: number): { block: GraphBlock; length: number | null } {

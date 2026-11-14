@@ -5,6 +5,7 @@
 import { pieceCycle } from '../cycle';
 import { PX_PER_BEAT, formatBeats, linkBeats, linkBetween, spanOf, type SpanPoint } from '../engine/geometry';
 import { instrumentById } from '../engine/instruments';
+import type { SynthPatch } from '../engine/synth';
 import { findLoops } from '../loops';
 
 export interface DeckMix {
@@ -64,6 +65,15 @@ export interface DeckWave {
   instrument?: string;
 }
 
+/** A piece's synth machine, patch and all. */
+export interface DeckMachine {
+  id: string;
+  name: string;
+  short: string;
+  hint?: string;
+  patch: SynthPatch;
+}
+
 export interface DeckRegion {
   id: string;
   name: string;
@@ -118,10 +128,12 @@ export interface DeckInput {
   links: DeckLink[];
   regions: DeckRegion[];
   waves?: DeckWave[];
+  /** The piece's synth machines; blocks with these kinds play them. */
+  machines?: DeckMachine[];
   recording?: boolean;
   takes?: { id: string; name: string; instrument: string; notes: { beat: number; degree: number; beats: number; velocity: number }[] }[];
-  /** Every canvas in this browser. The open one is `canvasId`, or else `canvasName`. */
-  canvasId?: string;
+  /** Every canvas in this browser. The open one is `canvasId`, or else `canvasName`. Null when the library is empty. */
+  canvasId?: string | null;
   canvases?: { id: string; name: string }[];
   /** Null when the piece has no background. Absent when the caller didn't say. */
   bed?: DeckBed | null;

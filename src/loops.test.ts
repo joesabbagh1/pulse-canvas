@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { fitLength, linkPath, parseLength } from './engine/geometry';
 import { findLoops } from './loops';
-import { parseRoute, routeHref } from './ui/route';
+import { parseCanvasId, parseRoute, routeHref } from './ui/route';
 
 describe('fitLength', () => {
   const a = { x: 0, y: 0 };
@@ -70,12 +70,14 @@ describe('findLoops', () => {
 
 describe('routes', () => {
   it('reads pages from the fragment, and anything else is the canvas', () => {
-    expect(['#/canvases', '#/examples', '#/guide', '#/instruments', '#/waves', '#/', '', '#/nowhere', '#piece=1.abc'].map(parseRoute)).toEqual([
+    expect(['#/canvases', '#/examples', '#/guide', '#/instruments', '#/waves', '#/synth', '#/', '', '#/nowhere', '#piece=1.abc', '#/canvas/c1'].map(parseRoute)).toEqual([
       'canvases',
       'examples',
       'guide',
       'instruments',
       'waves',
+      'synth',
+      'canvas',
       'canvas',
       'canvas',
       'canvas',
@@ -84,5 +86,15 @@ describe('routes', () => {
     expect(routeHref('guide')).toBe('#/guide');
     expect(routeHref('canvases')).toBe('#/canvases');
     expect(routeHref('waves')).toBe('#/waves');
+  });
+
+  it('carries the open canvas in its route', () => {
+    expect(parseCanvasId('#/canvas/c42')).toBe('c42');
+    expect(parseCanvasId('#/canvas')).toBeNull();
+    expect(parseCanvasId('#/canvases')).toBeNull();
+    expect(parseCanvasId('#piece=1.abc')).toBeNull();
+    expect(parseCanvasId('')).toBeNull();
+    expect(routeHref('canvas', 'c42')).toBe('#/canvas/c42');
+    expect(routeHref('canvas')).toBe('#/canvas');
   });
 });

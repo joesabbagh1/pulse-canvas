@@ -137,4 +137,76 @@ describe('deck building', () => {
     expect(plan.effects).toEqual([]);
     expect(plan.text).toContain('kick — Kick');
   });
+
+  it('adds a synth machine from a preset and points a block at it', () => {
+    const added = perform(rig(), { op: 'synth', action: 'add', name: 'Fog Lead', preset: 'acid' });
+    if ('error' in added) throw new Error(added.error);
+    const effect = added.effects.find((item) => item.type === 'putMachine');
+    if (!effect || effect.type !== 'putMachine') throw new Error('no machine');
+    expect(effect.machine).toMatchObject({ name: 'Fog Lead', short: 'Fog Lea', patch: { mode: 'mono', wave: 'sawtooth', q: 8 } });
+    expect(added.text).toContain(effect.machine.id);
+    const input = { ...rig(), machines: [effect.machine] };
+    const block = perform(input, { op: 'add_block', kind: 'Fog Lead' });
+    if ('error' in block) throw new Error(block.error);
+    const addedBlock = block.effects.find((item) => item.type === 'addBlock');
+    expect(addedBlock && addedBlock.type === 'addBlock' && addedBlock.block.kind).toBe(effect.machine.id);
+    const listed = perform(input, { op: 'synth', action: 'list' });
+    if ('error' in listed) throw new Error(listed.error);
+    expect(listed.text).toContain('Fog Lead');
+  });
+
+  it('edits a machine patch by name and renames it', () => {
+    const added = perform(rig(), { op: 'synth', action: 'add', name: 'Fog Lead', preset: 'pad' });
+    if ('error' in added) throw new Error(added.error);
+    const machine = added.effects.find((item) => item.type === 'putMachine');
+    if (!machine || machine.type !== 'putMachine') throw new Error('no machine');
+    const input = { ...rig(), machines: [machine.machine] };
+    const edited = perform(input, { op: 'synth', action: 'edit', machine: 'Fog Lead', cutoff: 3000, q: 10, mode: 'mono', glide: 0.08, name: 'Mist Lead' });
+    if ('error' in edited) throw new Error(edited.error);
+    const effect = edited.effects.find((item) => item.type === 'putMachine');
+    if (!effect || effect.type !== 'putMachine') throw new Error('no effect');
+    expect(effect.machine.patch).toMatchObject({ cutoff: 3000, q: 10, mode: 'mono', glide: 0.08 });
+    expect(effect.machine.name).toBe('Mist Lead');
+    expect(effect.machine.patch.wave).toBe('fatsawtooth');
+    expect(edited.text).toContain('patch updated');
+  });
+
+  it('rejects bad machine patches and unknown machines', () => {
+    expect(perform(rig(), { op: 'synth', action: 'add', name: 'X', wave: 'flute' })).toMatchObject({ error: expect.stringMatching(/A wave is/) });
+    expect(perform(rig(), { op: 'synth', action: 'add', name: 'X', mode: 'duo' })).toMatchObject({ error: expect.stringMatching(/Mode is/) });
+    expect(perform(rig(), { op: 'synth', action: 'add', name: 'X', cutoff: 3 })).toMatchObject({ error: expect.stringMatching(/cutoff is from/) });
+    expect(perform(rig(), { op: 'synth', action: 'edit', machine: 'ghost', q: 3 })).toMatchObject({ error: expect.stringMatching(/No machine called/) });
+    expect(perform(rig(), { op: 'synth', action: 'add', name: 'X', preset: 'laser' })).toMatchObject({ error: expect.stringMatching(/No preset called/) });
+    const added = perform(rig(), { op: 'synth', action: 'add', name: 'Fog Lead', preset: 'keys' });
+    if ('error' in added) throw new Error(added.error);
+    const machine = added.effects.find((item) => item.type === 'putMachine');
+    if (!machine || machine.type !== 'putMachine') throw new Error('no machine');
+    expect(perform({ ...rig(), machines: [machine.machine] }, { op: 'synth', action: 'edit', machine: machine.machine.id, name: 'Fog Lead' })).toMatchObject({
+      error: expect.stringMatching(/Nothing to change/),
+    });
+  });
+
+  it('removes a machine', () => {
+    const added = perform(rig(), { op: 'synth', action: 'add', name: 'Fog Lead', preset: 'bass' });
+    if ('error' in added) throw new Error(added.error);
+    const machine = added.effects.find((item) => item.type === 'putMachine');
+    if (!machine || machine.type !== 'putMachine') throw new Error('no machine');
+    const removed = perform({ ...rig(), machines: [machine.machine] }, { op: 'synth', action: 'remove', machine: machine.machine.id });
+    if ('error' in removed) throw new Error(removed.error);
+    expect(removed.effects).toEqual([{ type: 'dropMachine', id: machine.machine.id }]);
+    expect(removed.text).toContain('plain tone');
+  });
+
+  it('matches machine names in catalog and resolves kind ambiguously when needed', () => {
+    const added = perform(rig(), { op: 'synth', action: 'add', name: 'Fog Lead', preset: 'keys' });
+    if ('error' in added) throw new Error(added.error);
+    const machine = added.effects.find((item) => item.type === 'putMachine');
+    if (!machine || machine.type !== 'putMachine') throw new Error('no machine');
+    const input = { ...rig(), machines: [machine.machine] };
+    const catalog = perform(input, { op: 'catalog', query: 'fog' });
+    if ('error' in catalog) throw new Error(catalog.error);
+    expect(catalog.text).toContain('(synth machine)');
+    const ambiguous = perform({ ...input, machines: [machine.machine, { ...machine.machine, id: 'syn-2', name: 'Fog Pad', short: 'fog2' }] }, { op: 'add_block', kind: 'Fog' });
+    expect(ambiguous).toMatchObject({ error: expect.stringMatching(/matches Fog Lead/) });
+  });
 });

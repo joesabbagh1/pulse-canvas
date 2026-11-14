@@ -16,13 +16,15 @@ export interface SavedCanvas {
 }
 
 export interface LibraryFile {
-  currentId: string;
+  /** The canvas being edited, or null when every canvas was deleted. */
+  currentId: string | null;
   canvases: SavedCanvas[];
 }
 
 export interface OpenShelf {
+  /** The open piece, or an empty one when there is no canvas to open. */
   current: Piece;
-  currentId: string;
+  currentId: string | null;
   canvases: SavedCanvas[];
   /** A piece or a library was already stored. A shared link should ask first. */
   existed: boolean;
@@ -78,8 +80,7 @@ export function readLibrary(storage: Storage): LibraryFile | null {
     const data = JSON.parse(raw) as Partial<LibraryFile>;
     if (!Array.isArray(data.canvases)) return null;
     const canvases = data.canvases.map(readCanvas).filter((canvas): canvas is SavedCanvas => !!canvas);
-    if (!canvases.length) return null;
-    const currentId = canvases.some((canvas) => canvas.id === data.currentId) ? (data.currentId as string) : canvases[0].id;
+    const currentId = canvases.some((canvas) => canvas.id === data.currentId) ? (data.currentId as string) : (canvases[0]?.id ?? null);
     return { currentId, canvases };
   } catch {
     return null;
@@ -102,6 +103,7 @@ export function openLibrary(storage: Storage, now = Date.now()): OpenShelf {
   if (existing) {
     const current = existing.canvases.find((canvas) => canvas.id === existing.currentId) ?? existing.canvases[0];
     writeLibrary(storage, existing);
+    if (!current) return { current: pieceIn(storage) ?? demoPiece(), currentId: null, canvases: [], existed: true };
     return { current: current.piece, currentId: current.id, canvases: existing.canvases, existed: true };
   }
   const saved = pieceIn(storage);
@@ -132,17 +134,12 @@ export function renameInLibrary(file: LibraryFile, id: string, name: string): Li
 }
 
 /**
- * Drops one canvas. The last one is replaced by an empty piece, so the list
- * is never empty. `opened` is the piece to show when the current canvas was
- * the one removed.
+ * Drops one canvas, down to none at all. `opened` is the piece to show when
+ * the current canvas was the one removed and another one is left.
  */
-export function removeFromLibrary(file: LibraryFile, id: string, empty: Piece, now = Date.now()): { file: LibraryFile; opened: Piece | null } {
+export function removeFromLibrary(file: LibraryFile, id: string): { file: LibraryFile; opened: Piece | null } {
   const remaining = file.canvases.filter((canvas) => canvas.id !== id);
-  if (!remaining.length) {
-    const canvas: SavedCanvas = { id: newId('c'), name: 'Canvas', updatedAt: now, piece: empty };
-    return { file: { currentId: canvas.id, canvases: [canvas] }, opened: id === file.currentId ? empty : null };
-  }
-  const currentId = id === file.currentId ? remaining[0].id : file.currentId;
+  const currentId = id === file.currentId ? (remaining[0]?.id ?? null) : file.currentId;
   const opened = id === file.currentId ? (remaining.find((canvas) => canvas.id === currentId)?.piece ?? null) : null;
   return { file: { currentId, canvases: remaining }, opened };
 }

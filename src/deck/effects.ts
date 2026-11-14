@@ -1,6 +1,6 @@
 import type { Bed } from '../bed';
 import type { SampleRef } from '../engine/samples';
-import type { DeckBlock, DeckFx, DeckGroove, DeckLink, DeckMix, DeckRegion, DeckWave } from './scene';
+import type { DeckBlock, DeckFx, DeckGroove, DeckLink, DeckMachine, DeckMix, DeckRegion, DeckWave } from './scene';
 import type { Take } from '../takes';
 
 /** A change the open canvas applies. Ids are already chosen, so the reply can name them. */
@@ -34,6 +34,8 @@ export type DeckEffect =
   | { type: 'tune'; scaleId?: string; rootHz?: number; snap?: boolean }
   | { type: 'addWave'; wave: DeckWave }
   | { type: 'putWave'; wave: DeckWave }
+  | { type: 'putMachine'; machine: DeckMachine }
+  | { type: 'dropMachine'; id: string }
   | { type: 'playNotes'; instrument: string; notes: { degree: number; beats: number; at: number; velocity: number }[] }
   | { type: 'recordStart' }
   | { type: 'recordStop' }

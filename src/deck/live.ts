@@ -37,9 +37,9 @@ interface PlayNote {
   velocity: number;
 }
 
-function instrumentOf(ref: unknown): { id: string } | { error: string } {
+function instrumentOf(ref: unknown, machines: DeckInput['machines']): { id: string } | { error: string } {
   if (typeof ref !== 'string' || !ref.trim()) return { error: 'Say which instrument.' };
-  const kind = resolveKind(ref);
+  const kind = resolveKind(ref, machines ?? []);
   if ('error' in kind) return kind;
   if (kind.id === 'start' || kind.id === 'pattern') return { error: 'That is not an instrument. catalog lists them.' };
   return kind;
@@ -70,7 +70,7 @@ function playNotes(raw: unknown): PlayNote[] | string {
 }
 
 function playInstrument(input: DeckInput, command: Record<string, unknown>): DeckPlan {
-  const instrument = instrumentOf(command.instrument);
+  const instrument = instrumentOf(command.instrument, input.machines);
   if ('error' in instrument) return { error: instrument.error };
   const raw = command.notes ?? (command.degree !== undefined ? { degree: command.degree, beats: command.beats ?? 1, at: command.at, velocity: command.velocity } : undefined);
   const notes = playNotes(raw);
@@ -130,7 +130,7 @@ function take(input: DeckInput, command: Record<string, unknown>): DeckPlan {
     return done(input, [{ type: 'placeTake', take: found }], `Placed ${found.name} on the canvas.`);
   }
 
-  const instrument = instrumentOf(command.instrument);
+  const instrument = instrumentOf(command.instrument, input.machines);
   if ('error' in instrument) return { error: instrument.error };
   const notes = takeNotes(command.notes, input.snap);
   if (typeof notes === 'string') return { error: notes };

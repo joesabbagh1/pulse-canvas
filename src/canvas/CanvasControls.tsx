@@ -3,6 +3,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@ui-sdk/react/popover';
 import { Tabs, TabsList, TabsPanel, TabsTab } from '@ui-sdk/react/tabs';
 import { useState, type CSSProperties } from 'react';
 import { CATEGORIES, instrumentsIn, isInstrumentId, type CategoryId } from '../engine/instruments';
+import type { SynthMachine } from '../engine/synth';
 import type { BlockKind } from '../engine/scheduler';
 import type { Stamp } from '../engine/wave';
 
@@ -22,6 +23,7 @@ export function AddDock({
   onAddPattern,
   onAddRegion,
   onStamp,
+  machines,
 }: {
   waves: boolean;
   pencil: boolean;
@@ -30,6 +32,7 @@ export function AddDock({
   onAddPattern: () => void;
   onAddRegion: () => void;
   onStamp: (stamp: Stamp) => void;
+  machines: readonly SynthMachine[];
 }) {
   const [category, setCategory] = useState<CategoryId>('keys');
   const family = CATEGORIES.find((c) => c.id === category) ?? CATEGORIES[0];
@@ -75,6 +78,19 @@ export function AddDock({
                     >
                       <span className="dock-swatch" style={{ '--c': `hsl(${family.hue} 62% 58%)` } as CSSProperties} aria-hidden="true" />
                       <span>{inst.name}</span>
+                    </button>
+                  ))}
+                  {family.id === 'synths' && machines.map((machine) => (
+                    <button
+                      key={machine.id}
+                      type="button"
+                      className="palette-item"
+                      onClick={() => onAdd(machine.id)}
+                      title={machine.hint}
+                      aria-label={`Add ${machine.name.toLowerCase()}`}
+                    >
+                      <span className="dock-swatch" style={{ '--c': 'var(--ink)' } as CSSProperties} aria-hidden="true" />
+                      <span>{machine.name}</span>
                     </button>
                   ))}
                 </TabsPanel>

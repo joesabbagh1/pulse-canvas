@@ -5,7 +5,7 @@ import type { DeckEffect } from './effects';
 import type { Bed } from '../bed';
 import type { SampleRef } from '../engine/samples';
 import { perform } from './plan';
-import { renderScene, type DeckBlock, type DeckFx, type DeckGroove, type DeckInput, type DeckLink, type DeckMix, type DeckRegion, type DeckWave } from './scene';
+import { renderScene, type DeckBlock, type DeckFx, type DeckGroove, type DeckInput, type DeckLink, type DeckMachine, type DeckMix, type DeckRegion, type DeckWave } from './scene';
 import type { Take } from '../takes';
 
 const GESTURE = 'Press Play in the browser once so it can make sound. After that, the deck can start and stop on its own.';
@@ -31,6 +31,9 @@ export interface DeckHandlers {
   tune: (tuning: { scaleId?: string; rootHz?: number; snap?: boolean }) => void;
   addWave: (wave: DeckWave) => void;
   putWave: (wave: DeckWave) => void;
+  /** Upserts a synth machine into the piece. */
+  putMachine: (machine: DeckMachine) => void;
+  dropMachine: (id: string) => void;
   playNotes: (phrase: { instrument: string; notes: { degree: number; beats: number; at: number; velocity: number }[] }) => Promise<string | null>;
   recordStart: () => Promise<string | null>;
   recordStop: () => Promise<void>;
@@ -78,6 +81,8 @@ async function apply(handlers: DeckHandlers, effects: DeckEffect[]): Promise<str
     else if (effect.type === 'tune') handlers.tune(effect);
     else if (effect.type === 'addWave') handlers.addWave(effect.wave);
     else if (effect.type === 'putWave') handlers.putWave(effect.wave);
+    else if (effect.type === 'putMachine') handlers.putMachine(effect.machine);
+    else if (effect.type === 'dropMachine') handlers.dropMachine(effect.id);
     else if (effect.type === 'playNotes') {
       const failed = await handlers.playNotes(effect);
       if (failed) return failed;

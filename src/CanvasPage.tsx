@@ -26,6 +26,7 @@ import type { Cycle } from './cycle';
 import type { Engine } from './engine/engine';
 import { GRID, PX_PER_BEAT, formatBeats, type XY } from './engine/geometry';
 import type { BlockKind } from './engine/scheduler';
+import type { SynthMachine } from './engine/synth';
 import type { Scale } from './engine/tuning';
 import type { Stamp, Wave, WaveRole } from './engine/wave';
 import { Inspector } from './Inspector';
@@ -100,6 +101,10 @@ interface Props {
   onStraighten: () => void;
   onWaveRole: (role: WaveRole) => void;
   onWaveInstrument: (instrument: string) => void;
+  /** This piece's synth machines, for the instrument pickers and patch editor. */
+  machines: readonly SynthMachine[];
+  onCreateMachine: () => string;
+  onEditMachine: (id: string, patch: Partial<SynthMachine>) => void;
   onDelete: () => void;
   onRoot: (hz: number) => void;
   onScale: (scaleId: string) => void;
@@ -185,6 +190,7 @@ export function CanvasPage(props: Props) {
             onAddPattern={props.onAddPattern}
             onAddRegion={props.onAddRegion}
             onStamp={props.onStamp}
+            machines={props.machines}
           />
           <ZoomControls />
           <Panel position="bottom-left" className="scope-dock">
@@ -224,6 +230,7 @@ export function CanvasPage(props: Props) {
             region={props.selectedRegion}
             link={props.selectedLink}
             wave={props.waveInfo}
+            machines={props.machines}
             playing={props.playing}
             onChange={props.onChangeBlock}
             onLinkCode={props.onLinkCode}
@@ -238,6 +245,8 @@ export function CanvasPage(props: Props) {
             onWaveInstrument={props.onWaveInstrument}
             onDelete={props.onDelete}
             takenKeys={props.takenKeys}
+            onCreateMachine={props.onCreateMachine}
+            onEditMachine={props.onEditMachine}
           />
         ) : (
           <PiecePanel

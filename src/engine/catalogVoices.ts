@@ -2,6 +2,7 @@ import type { Instrument } from './instruments';
 import { NO_GATE, ONCE_GATE, type NoteGate } from './holds';
 import { AcidVoice, MachineKit } from './machine';
 import { Pool } from './pool';
+import { SynthMachineVoices } from './synthVoices';
 import * as Tone from 'tone';
 
 type SustainInstrument = Instrument & { voice: 'sustain' };
@@ -361,6 +362,7 @@ export class CatalogVoices {
   private drum: Pool<DrumVoice> | null = null;
   private machine: MachineKit | null = null;
   private acid: AcidVoice | null = null;
+  private synth: SynthMachineVoices | null = null;
 
   constructor(private output: Tone.InputNode) {}
 
@@ -391,6 +393,9 @@ export class CatalogVoices {
         return;
       case 'acid':
         this.acidVoice().play(inst, hz, time, velocity, length, secondsPerBeat, accent);
+        return;
+      case 'synth':
+        this.synthVoices().play(inst, hz, time, velocity, length, secondsPerBeat);
         return;
       case 'tone':
       case 'bass':
@@ -428,6 +433,8 @@ export class CatalogVoices {
         return ONCE_GATE;
       case 'acid':
         return this.acidVoice().hold(hz, time, velocity, inst.gain);
+      case 'synth':
+        return this.synthVoices().hold(inst, hz, time, velocity);
       case 'tone':
       case 'bass':
       case 'jawharp':
@@ -453,6 +460,7 @@ export class CatalogVoices {
     if (this.drum) for (const voice of this.drum.voices) voice.release(time);
     this.machine?.silence(time);
     this.acid?.silence(time);
+    this.synth?.silence(time);
     this.sustain?.releaseAll(time);
     this.pluck?.releaseAll(time);
     this.bow?.releaseAll(time);
@@ -470,6 +478,7 @@ export class CatalogVoices {
     if (this.drum) for (const voice of this.drum.voices) voice.dispose();
     this.machine?.dispose();
     this.acid?.dispose();
+    this.synth?.dispose();
   }
 
   private machineKit() {
@@ -478,6 +487,10 @@ export class CatalogVoices {
 
   private acidVoice() {
     return (this.acid ??= new AcidVoice(this.output));
+  }
+
+  private synthVoices() {
+    return (this.synth ??= new SynthMachineVoices(this.output));
   }
 
   private sustainPool(): Pool<SustainVoice> {

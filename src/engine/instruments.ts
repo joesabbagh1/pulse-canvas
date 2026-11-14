@@ -1,7 +1,11 @@
+import type { SynthMode, SynthWave } from './synth';
+
 // General MIDI's 128 melodic programs, a small drum kit, the club kit, an acid
 // bass, and the eight voices already in the engine. `voice` chooses the synth.
 // A pitched drum still carries `tune`: the player uses the note, and `tune` is
-// only the fallback.
+// only the fallback. On top of the catalog sit the piece's synth machines
+// (see engine/synth.ts): user-editable instruments registered at runtime, which
+// instrumentById resolves exactly like a built-in.
 
 export const CATEGORIES = [
   { id: 'keys', label: 'Keyboards', hue: 45 },
@@ -94,6 +98,19 @@ export type Instrument = Common & (
   | {
       voice: 'acid';
       wave: 'sawtooth' | 'square';
+      gain: number;
+    }
+  | {
+      voice: 'synth';
+      wave: SynthWave;
+      cutoff: number;
+      q: number;
+      attack: number;
+      decay: number;
+      sustain: number;
+      release: number;
+      mode: SynthMode;
+      glide: number;
       gain: number;
     }
 );
@@ -2452,8 +2469,20 @@ export type InstrumentId = (typeof INSTRUMENTS)[number]['id'];
 
 const byId = new Map<string, Instrument>(INSTRUMENTS.map((instrument) => [instrument.id, instrument]));
 
+/** The open piece's synth machines, dressed as catalog entries. Set by the app whenever the piece's machines change. */
+const machines = new Map<string, Instrument>();
+
+export function setMachines(entries: readonly Instrument[]) {
+  machines.clear();
+  for (const entry of entries) machines.set(entry.id, entry);
+}
+
+export function machineById(id: string): Instrument | undefined {
+  return machines.get(id);
+}
+
 export function instrumentById(id: string): Instrument | undefined {
-  return byId.get(id);
+  return byId.get(id) ?? machines.get(id);
 }
 
 export function instrumentsIn(category: CategoryId): readonly Instrument[] {

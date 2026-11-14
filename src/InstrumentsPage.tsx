@@ -46,7 +46,8 @@ interface Props {
  * Pointer and computer-key performance. Note-ons and note-offs are beats on
  * the piece clock. A second Record press, 64 notes, or 32 beats ends the take.
  */
-function useRecorder({
+/** Shared with the Synth page, which plays machines through the same machinery. */
+export function useRecorder({
   bpm,
   snap,
   scale,

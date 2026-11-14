@@ -19,8 +19,11 @@ import { CanvasesPage } from './CanvasesPage';
 import { useDeck } from './deck/useDeck';
 import type { DeckBlock } from './deck/scene';
 import { Engine } from './engine/engine';
+import { setMachines } from './engine/instruments';
+import { DEFAULT_PATCH, machineInstrument, machineShort, PRESETS, type SynthMachine } from './engine/synth';
 import { ExamplesPage } from './ExamplesPage';
 import { InstrumentsPage } from './InstrumentsPage';
+import { SynthPage } from './SynthPage';
 import { BLOCK_SIZE, DEFAULT_SPAN, PX_PER_BEAT, fitLength, inPort, linkBeats, linkBetween, outPort, patternFrame, spanOf, type SpanPoint, type XY } from './engine/geometry';
 import { NEW_PATTERN } from './engine/pattern';
 import { isMelodic, type BlockKind } from './engine/scheduler';
@@ -68,7 +71,7 @@ import {
 import { SettingsContext } from './settings';
 import { MOD, TopBar, clockTime } from './TopBar';
 import type { MenuItem } from './ui/Menu';
-import { useRoute } from './ui/route';
+import { routeHref, useRoute } from './ui/route';
 import { ConfirmHost, confirmDialog } from './ui/Confirm';
 import { ToastHost, toast } from './ui/Toast';
 import { youtubeAudio, youtubeInfo } from './youTubeAudio';
@@ -128,6 +131,7 @@ function Studio() {
   const [edges, setEdges, onEdgesChange] = useEdgesState(toEdges(initial));
   const [waves, setWaves] = useState<Wave[]>(initial.waves ?? []);
   const [takes, setTakes] = useState<Take[]>(initial.takes ?? []);
+  const [machines, setMachinesState] = useState<SynthMachine[]>(initial.machines ?? []);
   const [bed, setBed] = useState<Bed | null>(initial.bed ?? null);
   const [bedPeaks, setBedPeaks] = useState<Float32Array | null>(null);
   const [bedMissing, setBedMissing] = useState(false);
@@ -139,7 +143,7 @@ function Studio() {
   const [rootHz, setRootHz] = useState(initial.rootHz);
   const [importedScales, setImportedScales] = useState(initial.scales);
   const [playing, setPlaying] = useState(false);
-  const [route, go] = useRoute();
+  const [route, routeCanvasId, go] = useRoute();
   const [recording, setRecording] = useState(false);
   const [recordedSeconds, setRecordedSeconds] = useState(0);
   const openFileRef = useRef<HTMLInputElement>(null);
@@ -148,7 +152,7 @@ function Studio() {
   // A hot reload keeps the old engine, including a playback clock that already
   // stopped. The new class is a different one, so swap it in.
   if (!(engine instanceof Engine)) {
-    engine.stop();
+    (engine as Engine).stop();
     setEngine(new Engine());
   }
   const { screenToFlowPosition, deleteElements, fitView } = useReactFlow<CanvasNode, LinkEdge>();
@@ -158,6 +162,12 @@ function Studio() {
   const scale = useMemo(() => scaleById(scaleId, scales), [scaleId, scales]);
   const canvas = useMemo<Tuning>(() => ({ scale, rootHz }), [scale, rootHz]);
   const settings = useMemo(() => ({ canvas, scales, snap }), [canvas, scales, snap]);
+
+  // Synth machines resolve through the engine's registry, for the voices and
+  // for every label and picker that looks instruments up by kind. Updated
+  // during render, not in an effect, so a render that shows a machine already
+  // resolves it — the playing surfaces read the registry in that same commit.
+  useMemo(() => setMachines(machines.map(machineInstrument)), [machines]);
 
   // The canvas is the source of truth; the engine follows it.
   useEffect(() => engine.setGraph(toGraph(nodes, canvas, scales), toGraphLinks(edges)), [engine, nodes, edges, canvas, scales]);
@@ -201,8 +211,10 @@ function Studio() {
   }, [engine, waves, snap, regionKey]);
 
   useEffect(() => {
+    // Nothing is open; the library is empty until a canvas is made.
+    if (canvasId === null) return;
     const timer = setTimeout(() => {
-      const piece = toPiece(nodes, edges, { bpm, snap, scaleId, rootHz, scales: importedScales }, waves, takes, bed);
+      const piece = toPiece(nodes, edges, { bpm, snap, scaleId, rootHz, scales: importedScales }, waves, takes, bed, machines);
       savePiece(piece);
       setCanvases((prev) => {
         const next = prev.map((canvas) => (canvas.id === canvasId ? { ...canvas, piece, updatedAt: Date.now() } : canvas));
@@ -211,12 +223,12 @@ function Studio() {
       });
     }, 400);
     return () => clearTimeout(timer);
-  }, [nodes, edges, waves, takes, bed, bpm, snap, scaleId, rootHz, importedScales, canvasId]);
+  }, [nodes, edges, waves, takes, bed, bpm, snap, scaleId, rootHz, importedScales, machines, canvasId]);
 
   // Everything undoable is in the piece; selection and view are not.
   const pieceJson = useMemo(
-    () => JSON.stringify(toPiece(nodes, edges, { bpm, snap, scaleId, rootHz, scales: importedScales }, waves, takes, bed)),
-    [nodes, edges, waves, takes, bed, bpm, snap, scaleId, rootHz, importedScales],
+    () => JSON.stringify(toPiece(nodes, edges, { bpm, snap, scaleId, rootHz, scales: importedScales }, waves, takes, bed, machines)),
+    [nodes, edges, waves, takes, bed, bpm, snap, scaleId, rootHz, importedScales, machines],
   );
 
   // Puts an undo step back, keeping what's selected and what React Flow has
@@ -241,6 +253,7 @@ function Studio() {
     setImportedScales(piece.scales);
     setWaves(piece.waves ?? []);
     setTakes(piece.takes ?? []);
+    setMachinesState(piece.machines ?? []);
     setBed(piece.bed ?? null);
     setSelectedWaveId((id) => ((piece.waves ?? []).some((w) => w.id === id) ? id : null));
   };
@@ -664,6 +677,7 @@ function Studio() {
     setEdges(toEdges(piece));
     setWaves(piece.waves ?? []);
     setTakes(piece.takes ?? []);
+    setMachinesState(piece.machines ?? []);
     setBed(piece.bed ?? null);
     setSelectedWaveId(null);
     setBpm(piece.bpm);
@@ -674,7 +688,7 @@ function Studio() {
     setTimeout(() => void fitView({ padding: 0.25, duration: 300 }), 50);
   };
 
-  const currentPiece = () => toPiece(nodes, edges, { bpm, snap, scaleId, rootHz, scales: importedScales }, waves, takes, bed);
+  const currentPiece = () => toPiece(nodes, edges, { bpm, snap, scaleId, rootHz, scales: importedScales }, waves, takes, bed, machines);
 
   // A shared link opens its piece. A first visit just shows it; otherwise ask,
   // since it replaces the work saved in this browser. The fragment is cleared
@@ -776,7 +790,19 @@ function Studio() {
   }, [engine, recording]);
 
   const openExample = (example: Example) => {
-    go('canvas');
+    if (!canvasId) {
+      // No canvas is open; the example becomes the first one.
+      const added = addCanvas({ currentId: null, canvases: [] }, example.piece, Date.now(), example.title);
+      if (!added) return;
+      writeLibrary(localStorage, added);
+      setCanvases(added.canvases);
+      setCanvasId(added.currentId);
+      replaceWith(example.piece);
+      go('canvas', added.currentId);
+      toast('success', example.title, 'Loaded into a new canvas. Press play, or Space, to hear it.');
+      return;
+    }
+    go('canvas', canvasId);
     replaceWith(example.piece);
     toast('success', example.title, 'Loaded. Press play, or Space, to hear it.');
   };
@@ -804,8 +830,28 @@ function Studio() {
       setCanvasId(id);
       replaceWith(target.piece);
     }
-    go('canvas');
+    go('canvas', id);
   };
+
+  // The URL names the open canvas (#/canvas/<id>), so a refresh, the back
+  // button, or a pasted link restores it. An id that isn't in the library
+  // (deleted, or from another browser's localStorage) falls back to the
+  // canvas that is open; a bare canvas URL is rewritten in place. With no
+  // canvases at all there is nothing to open, so land on the list.
+  useEffect(() => {
+    if (route !== 'canvas') return;
+    if (!canvases.length) {
+      go('canvases');
+      return;
+    }
+    if (routeCanvasId && canvases.some((canvas) => canvas.id === routeCanvasId)) {
+      if (routeCanvasId !== canvasId) openCanvas(routeCanvasId);
+      return;
+    }
+    history.replaceState(null, '', routeHref('canvas', canvasId));
+    // Navigation is driven by the fragment; openCanvas follows the canvases.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [route, routeCanvasId, canvasId, canvases]);
 
   const makeCanvas = (name?: string): string | null => {
     if (canvases.length >= MAX_CANVASES) {
@@ -821,7 +867,7 @@ function Studio() {
     setCanvases(added.canvases);
     setCanvasId(added.currentId);
     replaceWith(fresh);
-    go('canvas');
+    go('canvas', added.currentId);
     return null;
   };
 
@@ -836,7 +882,7 @@ function Studio() {
   const removeCanvas = (id: string) => {
     const piece = currentPiece();
     const saved = canvases.map((item) => (item.id === canvasId ? { ...item, piece, updatedAt: Date.now() } : item));
-    const result = removeFromLibrary({ currentId: canvasId, canvases: saved }, id, emptyPiece(settingsNow()));
+    const result = removeFromLibrary({ currentId: canvasId, canvases: saved }, id);
     writeLibrary(localStorage, result.file);
     setCanvases(result.file.canvases);
     setCanvasId(result.file.currentId);
@@ -848,7 +894,7 @@ function Studio() {
     if (!canvas) return;
     const ok = await confirmDialog({
       title: `Delete “${canvas.name}”?`,
-      message: 'It is removed from this browser. The other canvases stay.',
+      message: canvases.length > 1 ? 'It is removed from this browser. The other canvases stay.' : 'It is the last canvas. The list stays empty until you add one.',
       confirmLabel: 'Delete',
       danger: true,
     });
@@ -909,8 +955,8 @@ function Studio() {
   );
 
   // Shortcuts that belong to the app rather than the canvas.
-  const shortcuts = useRef({ save, openFile: () => openFileRef.current?.click(), go, route, perform });
-  shortcuts.current = { save, openFile: () => openFileRef.current?.click(), go, route, perform };
+  const shortcuts = useRef({ save, openFile: () => openFileRef.current?.click(), go, route, perform, canvasId });
+  shortcuts.current = { save, openFile: () => openFileRef.current?.click(), go, route, perform, canvasId };
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (isTyping(e.target) || e.altKey) return;
@@ -919,8 +965,8 @@ function Studio() {
       if ((e.metaKey || e.ctrlKey) && key === 's') void current.save();
       else if ((e.metaKey || e.ctrlKey) && key === 'o') current.openFile();
       else if (e.key === '?' && !e.metaKey && !e.ctrlKey) current.go('guide');
-      else if (e.key === 'Escape' && current.route !== 'canvas' && !document.querySelector('.confirm, .menu-list, .select-list')) current.go('canvas');
-      else if (current.route === 'instruments' || e.metaKey || e.ctrlKey || e.repeat || !current.perform(key)) return;
+      else if (e.key === 'Escape' && current.route !== 'canvas' && !document.querySelector('.confirm, .menu-list, .select-list')) current.go(current.canvasId ? 'canvas' : 'canvases', current.canvasId);
+      else if (current.route === 'instruments' || current.route === 'synth' || e.metaKey || e.ctrlKey || e.repeat || !current.perform(key)) return;
       e.preventDefault();
     };
     window.addEventListener('keydown', onKeyDown);
@@ -937,6 +983,30 @@ function Studio() {
   const saveTake = useCallback((take: Take) => {
     setTakes((current) => [...current, take].slice(-MAX_TAKES));
   }, []);
+
+  // Synth machines: piece-level instruments. Removing one retargets the
+  // blocks that played it, so nothing on the canvas points nowhere.
+  const addMachine = useCallback((presetId?: string) => {
+    const preset = PRESETS.find((item) => item.id === presetId);
+    const id = newId('syn');
+    const name = preset ? preset.name : 'Synth';
+    const hint = preset ? preset.hint : 'A synth machine: a wave through a resonant low-pass and an envelope.';
+    setMachinesState((current) => [...current, { id, name, short: machineShort(name), hint, patch: preset ? { ...preset.patch } : { ...DEFAULT_PATCH } }]);
+    return id;
+  }, []);
+
+  const editMachine = useCallback((id: string, patch: Partial<SynthMachine>) => {
+    setMachinesState((current) => current.map((machine) => (machine.id === id ? { ...machine, ...patch } : machine)));
+  }, []);
+
+  const removeMachine = useCallback(
+    (id: string) => {
+      setMachinesState((current) => current.filter((machine) => machine.id !== id));
+      setNodes((ns) => ns.map((n) => (isBlock(n) && n.data.kind === id ? { ...n, data: { ...n.data, kind: 'tone' as BlockKind } } : n)));
+      toast('info', 'Machine deleted', 'Blocks that played it now play the plain tone.');
+    },
+    [setNodes],
+  );
 
   // A row of blocks, one per note, linked in time order. The piece already on
   // the canvas stays; the row steps down if (80, 80) is already a block.
@@ -961,10 +1031,10 @@ function Studio() {
       setEdges((current) => [...current.map((edge) => (edge.selected ? { ...edge, selected: false } : edge)), ...links]);
       const count = laid.notes.length;
       toast('success', `Placed ${take.name}`, `${count} ${count === 1 ? 'note' : 'notes'} on the canvas.`);
-      go('canvas');
+      go('canvas', canvasId);
       setTimeout(() => void fitView({ padding: 0.25, duration: 300 }), 50);
     },
-    [nodes, setNodes, setEdges, go, fitView],
+    [nodes, setNodes, setEdges, go, canvasId, fitView],
   );
 
   useEffect(() => {
@@ -1041,6 +1111,7 @@ function Studio() {
         points: wave.points,
         ...(wave.instrument ? { instrument: wave.instrument } : {}),
       })),
+      machines,
       recording,
       takes,
       canvasId,
@@ -1180,6 +1251,12 @@ function Studio() {
     },
     addWave: (wave) => setWaves((list) => [...list, wave]),
     putWave: (wave) => setWaves((list) => list.map((item) => (item.id === wave.id ? wave : item))),
+    putMachine: (machine) =>
+      setMachinesState((list) => {
+        const next: SynthMachine = { ...machine, hint: machine.hint ?? '' };
+        return list.some((item) => item.id === machine.id) ? list.map((item) => (item.id === machine.id ? next : item)) : [...list, next];
+      }),
+    dropMachine: removeMachine,
     playNotes: async ({ instrument, notes }) => {
       if (Tone.getContext().state !== 'running') {
         try {
@@ -1291,6 +1368,7 @@ function Studio() {
       <div className="app">
         <TopBar
           route={route}
+          canvasId={canvasId}
           canvasName={canvasName}
           playing={playing}
           recording={recording}
@@ -1324,6 +1402,7 @@ function Studio() {
         />
 
         <div className={`workspace${selectedNode || selectedLink || waveInfo ? ' has-selection' : ''}`}>
+          {canvasId === null ? null : (
           <CanvasPage
             mode={route === 'waves' ? 'waves' : 'canvas'}
             parked={route !== 'canvas' && route !== 'waves'}
@@ -1346,6 +1425,9 @@ function Studio() {
             selectedRegion={selectedRegion}
             selectedLink={selectedLink}
             waveInfo={waveInfo || undefined}
+            machines={machines}
+            onCreateMachine={addMachine}
+            onEditMachine={editMachine}
             rootHz={rootHz}
             scaleId={scaleId}
             counts={{ blocks: nodes.filter(isBlock).length, links: edges.length, regions: nodes.filter(isRegion).length, waves: waves.length }}
@@ -1416,6 +1498,7 @@ function Studio() {
             onLoadBed={(file) => void loadBed(file)}
             onLoadUrl={loadYouTube}
           />
+          )}
 
           {route === 'canvases' && (
             <CanvasesPage canvases={canvases} currentId={canvasId} onOpen={openCanvas} onCreate={makeCanvas} onRename={renameCanvas} onDelete={(id) => void deleteCanvas(id)} />
@@ -1429,6 +1512,23 @@ function Studio() {
               scale={scale}
               rootHz={rootHz}
               takes={takes}
+              onAttack={attackInstrument}
+              onRelease={releaseInstrument}
+              onSaveTake={saveTake}
+              onPlace={placeTake}
+            />
+          )}
+          {route === 'synth' && (
+            <SynthPage
+              bpm={bpm}
+              snap={snap}
+              scale={scale}
+              rootHz={rootHz}
+              machines={machines}
+              takes={takes}
+              onAdd={addMachine}
+              onEdit={editMachine}
+              onRemove={removeMachine}
               onAttack={attackInstrument}
               onRelease={releaseInstrument}
               onSaveTake={saveTake}
