@@ -351,6 +351,22 @@ describe('Scheduler', () => {
       expect(s.link('p-b')).toMatchObject({ beats: 1, gapStart: 7, gapEnd: 30 });
     });
 
+    it('keeps the rest of a bar when one note fails', () => {
+      const heard: number[] = [];
+      let attempts = 0;
+      const s = new Scheduler((block, beat) => {
+        if (block.kind === 'start') return;
+        attempts += 1;
+        if (attempts === 1) throw new Error('filter rejected the downbeat');
+        heard.push(beat);
+      });
+      const p = box('0 1 2 3');
+      s.setGraph([block('s', -2 * B, 0, 'start', 4), p], [link('s', 'p')], 0);
+      s.start(0);
+      for (let beat = 0; beat <= 4; beat += 0.25) s.advance(beat);
+      expect(heard).toEqual([1.5, 2, 2.5]);
+    });
+
     it('sends notes only as far as it has been advanced, each one once', () => {
       const { s, notes } = patch(box('0 1 2 3 4 5 6 7'));
       s.start(0);

@@ -130,10 +130,14 @@ class Bus {
     if (floor >= 0.999) return;
     const release = Math.max(0.04, (this.settings?.fx.pumpBeats ?? DEFAULT_FX.pumpBeats) * secondsPerBeat);
     const gain = this.pumpGain.gain;
-    gain.cancelScheduledValues(time);
-    gain.setValueAtTime(Math.max(0.0001, gain.getValueAtTime(time)), time);
-    gain.linearRampToValueAtTime(floor, time + 0.01);
-    gain.exponentialRampToValueAtTime(1, time + Math.max(0.03, release));
+    try {
+      gain.cancelScheduledValues(time);
+      gain.setValueAtTime(Math.max(0.0001, gain.getValueAtTime(time)), time);
+      gain.linearRampToValueAtTime(floor, time + 0.01);
+      gain.exponentialRampToValueAtTime(1, time + Math.max(0.03, release));
+    } catch {
+      // The next kick restarts the dip. A rejected ramp must not stop the bar.
+    }
   }
 
   /** Takes a new cycle and new motions. Marks the filter curve stale. */
@@ -220,7 +224,7 @@ export class Mixer {
   private canvas = new Bus(this.output);
   private buses = new Map<string, Bus>();
   /** A pattern block turned down from fully open plays through its own low-pass, so the rest of the bus stays bright. */
-  private lanes = new Map<string, { filter: Tone.Filter; voices: Voices; busId: string }>();
+  private lanes = new Map<string, { filter: Tone.Filter; voices: Voices; busId: string; tone: number }>();
   private program = new Map<string, BusWaves>();
   /**
    * Live notes skip the piece reverb. Its impulse is decaying noise, so a held
@@ -317,11 +321,21 @@ export class Mixer {
     if (!lane) {
       const filter = new Tone.Filter({ type: 'lowpass', frequency: toneHz(tone), rolloff: -12 }).connect(bus.into);
       const voices = new Voices(filter);
-      lane = { filter, voices, busId };
+      lane = { filter, voices, busId, tone };
       this.lanes.set(id, lane);
       this.syncLane(lane);
+      return lane;
     }
-    lane.filter.frequency.rampTo(toneHz(tone), GLIDE);
+    // Every note of a pattern calls this. Ramping an unchanged cutoff schedules
+    // a second event at the same audio time, and that throw stops the rest of the bar.
+    if (lane.tone !== tone) {
+      lane.tone = tone;
+      try {
+        lane.filter.frequency.rampTo(toneHz(tone), GLIDE);
+      } catch {
+        lane.filter.frequency.value = toneHz(tone);
+      }
+    }
     return lane;
   }
 

@@ -322,11 +322,17 @@ export class Engine {
 
   private tick() {
     const now = this.audioNow();
-    this.scheduler.advance(this.clock.beatAt(now + LOOKAHEAD));
-    this.scheduler.prune(this.clock.beatAt(now) - 1);
-    this.flashes = this.flashes.filter((f) => f.time > now - 1);
-    this.mixer?.advance(this.clock, this.buses, now, now + LOOKAHEAD);
-    this.bedPlayer?.advance(this.bedSpec, this.clock, now, now + LOOKAHEAD);
+    try {
+      this.scheduler.advance(this.clock.beatAt(now + LOOKAHEAD));
+      this.scheduler.prune(this.clock.beatAt(now) - 1);
+      this.flashes = this.flashes.filter((f) => f.time > now - 1);
+      this.mixer?.advance(this.clock, this.buses, now, now + LOOKAHEAD);
+      this.bedPlayer?.advance(this.bedSpec, this.clock, now, now + LOOKAHEAD);
+    } catch (err) {
+      // Tone only books the next tick if this one returns. An audio-param
+      // error used to end the piece after the first hit.
+      console.warn('Playback tick failed', err);
+    }
   }
 
   /** `shift` is the pulse's transposition, in scale degrees. */

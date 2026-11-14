@@ -352,7 +352,11 @@ export class Scheduler {
         if (run.hits++ >= MAX_RUN_HITS) break;
         const hit = patternHit(block, note, span);
         const shape = { velocity: run.velocity, length: run.length ?? hit.length, ...(note.accent ? { accent: true } : {}) };
-        this.onHit(hit.block, run.start + note.at * span, run.shift, shape, { x: left + note.at * width, y: block.y });
+        try {
+          this.onHit(hit.block, run.start + note.at * span, run.shift, shape, { x: left + note.at * width, y: block.y });
+        } catch {
+          // One note must not cancel the rest of the pass.
+        }
       }
       run.cursor = until;
     }

@@ -667,15 +667,27 @@ export class Voices {
       return;
     }
     if (shade.dirty || !shade.automated || shade.scheduledTo < now - 0.05) {
-      shade.filter.frequency.cancelScheduledValues(now);
-      shade.filter.frequency.setValueAtTime(at(now), now);
-      shade.scheduledTo = now;
+      // The filter may have just been created, which already wrote a value at
+      // this exact time. A second event there throws and must not escape.
+      const when = Math.max(now, shade.scheduledTo) + 0.001;
+      try {
+        shade.filter.frequency.cancelScheduledValues(when);
+        shade.filter.frequency.setValueAtTime(at(when), when);
+      } catch {
+        // The curve already covers this moment. Keep playing.
+      }
+      shade.scheduledTo = when;
       shade.automated = true;
       shade.dirty = false;
     }
     while (shade.scheduledTo < until - 0.001) {
       const next = Math.min(shade.scheduledTo + 0.02, until);
-      shade.filter.frequency.linearRampToValueAtTime(at(next), next);
+      try {
+        shade.filter.frequency.linearRampToValueAtTime(at(next), next);
+      } catch {
+        shade.scheduledTo = until;
+        break;
+      }
       shade.scheduledTo = next;
     }
   }
