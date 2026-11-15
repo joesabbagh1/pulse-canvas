@@ -374,12 +374,14 @@ export class Scheduler {
           if (run.hits++ >= MAX_RUN_HITS) break;
           const owner = graph.curves.find((c) => c.index === note.curve);
           if (!owner) continue;
+          // A curve with no instrument of its own follows the block's.
+          const kind = owner.curve.kind || block.kind;
           try {
             this.onHit(
-              { ...block, kind: owner.curve.kind, degree: block.degree + note.degree },
+              { ...block, kind, degree: block.degree + note.degree },
               run.start + note.beat,
               run.shift,
-              { velocity: Math.min(1, run.velocity * note.velocity), length: run.length ?? heldLength(owner.curve.kind, note.beats) },
+              { velocity: Math.min(1, run.velocity * note.velocity), length: run.length ?? heldLength(kind, note.beats) },
               { x: left + (note.beat / span) * width, y: block.y },
             );
           } catch {

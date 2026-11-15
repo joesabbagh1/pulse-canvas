@@ -83,6 +83,7 @@ export function CurveCard({
   selected,
   machines,
   canRemove = true,
+  follow,
   onSelect,
   onRemove,
   onCurve,
@@ -92,6 +93,8 @@ export function CurveCard({
   selected?: boolean;
   machines: readonly SynthMachine[];
   canRemove?: boolean;
+  /** Set on a block: the label for "follow the block's instrument" (kind ''). */
+  follow?: string;
   onSelect?: () => void;
   onRemove?: () => void;
   onCurve: (patch: Partial<GraphCurve>) => void;
@@ -131,7 +134,7 @@ export function CurveCard({
         ariaLabel={`Instrument for y${index + 1}`}
         value={curve.kind}
         searchable
-        groups={instrumentGroupsFor(machines)}
+        groups={follow ? [{ options: [{ value: '', label: follow }] }, ...instrumentGroupsFor(machines)] : instrumentGroupsFor(machines)}
         onChange={(kind) => onCurve({ kind })}
       />
       <div className="graph-curve-sliders">

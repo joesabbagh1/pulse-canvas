@@ -129,11 +129,12 @@ export class Engine {
       for (const note of blockGraphNotes(block.graph, curves, span, 0, span)) {
         const owner = curves.find((c) => c.index === note.curve);
         if (!owner) continue;
+        const kind = owner.curve.kind || block.kind;
         mixer.play(
-          { ...block, kind: owner.curve.kind, degree: block.degree + note.degree },
+          { ...block, kind, degree: block.degree + note.degree },
           start + note.beat * beat,
           beat,
-          { velocity: note.velocity, length: heldLength(owner.curve.kind, note.beats) },
+          { velocity: note.velocity, length: heldLength(kind, note.beats) },
         );
       }
       return;

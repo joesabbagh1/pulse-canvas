@@ -240,7 +240,7 @@ function GraphBox({ id, data, selected }: NodeProps<BlockNode>) {
         spanU: note.beats / span,
         x: at * stripW,
         y: yToU(y),
-        fill: blockColor(owner.curve.kind, data.degree + note.degree, scale),
+        fill: blockColor(owner.curve.kind || data.kind, data.degree + note.degree, scale),
       };
     });
 

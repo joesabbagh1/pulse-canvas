@@ -198,6 +198,10 @@ describe('a graph riding on a block', () => {
       ...clampBlockGraph({}),
       curves: [{ id: 'c', expr: 'x', kind: 'flute', level: 1, shift: 24 }],
     });
+    // '' (this block's instrument) survives the block's clamp, but not the page's.
+    expect(clampBlockGraph({ curves: [{ id: 'c', expr: 'x', kind: '', level: 1, shift: 0 }] }).curves[0].kind).toBe('');
+    expect(clampGraph({ curves: [{ id: 'c', expr: 'x', kind: '', level: 1, shift: 0 }] }).curves[0].kind).toBe('tone');
+    expect(DEFAULT_BLOCK_GRAPH.curves[0].kind).toBe('');
   });
 
   it('sweeps the window over the box span, on the step grid', () => {

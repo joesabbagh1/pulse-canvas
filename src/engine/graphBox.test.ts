@@ -163,6 +163,23 @@ describe('graph boxes in the scheduler', () => {
     expect(notes[0].length).toBe(2);
   });
 
+  it("follows the block's instrument when a curve has none of its own", () => {
+    const { s, hits } = setup(
+      [
+        { id: 's', x: -3 * B, y: 0, kind: 'start', degree: 0, every: 0, scale: SCALES[0], rootHz: ROOT_HZ },
+        graphBlock({
+          kind: 'marimba',
+          graph: { ...DEFAULT_BLOCK_GRAPH, stepBeats: 2, curves: [{ id: 'c', expr: '1', kind: '', level: 1, shift: 0 }] },
+        }),
+      ],
+      [{ id: 's-g', source: 's', target: 'g' }],
+    );
+    s.start(0);
+    s.advance(6);
+    // Every note of the sweep sounds the block's marimba, not the plain tone.
+    expect(hits.filter((h) => h.id === 'g').every((h) => h.kind === 'marimba')).toBe(true);
+  });
+
   it('leaves struck voices their own length', () => {
     const { s, hits } = setup(
       [

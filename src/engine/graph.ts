@@ -14,7 +14,7 @@ export interface GraphCurve {
   id: string;
   /** y = f(x), in the little language of engine/fexpr.ts. */
   expr: string;
-  /** The instrument (or machine) that sounds this curve. */
+  /** The instrument (or machine) that sounds this curve. '' follows the block's. */
   kind: string;
   /** 0 to 1, of full loudness. */
   level: number;
@@ -72,12 +72,13 @@ export type BlockGraph = Omit<GraphSpec, 'loopBeats' | 'run'>;
 
 export const DEFAULT_BLOCK_GRAPH: BlockGraph = (() => {
   const { loopBeats: _loop, run: _run, ...rest } = DEFAULT_GRAPH;
-  return rest;
+  // A new box follows its block's instrument, so the inspector's picker works.
+  return { ...rest, curves: [{ ...rest.curves[0], kind: '' }] };
 })();
 
-/** The same safety net, for a graph riding on a block. */
+/** The same safety net, for a graph riding on a block. '' (this block) is kept. */
 export function clampBlockGraph(v: unknown, kindOk: (kind: string) => boolean = (k) => !!instrumentById(k)): BlockGraph {
-  const { loopBeats: _loop, run: _run, ...rest } = clampGraph(v, kindOk);
+  const { loopBeats: _loop, run: _run, ...rest } = clampGraph(v, kindOk, true);
   return rest;
 }
 
@@ -159,7 +160,11 @@ const num = (v: unknown, min: number, max: number, fallback: number) =>
  * unknown instruments retargeted to the plain tone, sizes capped. `kindOk`
  * says which instrument ids exist (machines included).
  */
-export function clampGraph(v: unknown, kindOk: (kind: string) => boolean = (k) => !!instrumentById(k)): GraphSpec {
+export function clampGraph(
+  v: unknown,
+  kindOk: (kind: string) => boolean = (k) => !!instrumentById(k),
+  keepEmptyKind = false,
+): GraphSpec {
   const g = isObject(v) ? v : {};
   const rawCurves = Array.isArray(g.curves) ? g.curves : DEFAULT_GRAPH.curves;
   const curves: GraphCurve[] = rawCurves
@@ -168,7 +173,7 @@ export function clampGraph(v: unknown, kindOk: (kind: string) => boolean = (k) =
     .map((c, i) => ({
       id: typeof c.id === 'string' && c.id ? c.id.slice(0, 100) : `graph-${i + 1}`,
       expr: typeof c.expr === 'string' ? c.expr.slice(0, MAX_EXPR_CHARS) : 'sin(x)',
-      kind: typeof c.kind === 'string' && kindOk(c.kind) ? c.kind : 'tone',
+      kind: typeof c.kind === 'string' && (kindOk(c.kind) || (keepEmptyKind && c.kind === '')) ? c.kind : 'tone',
       level: num(c.level, 0, 1, 0.9),
       shift: Math.round(num(c.shift, -24, 24, 0)),
     }));

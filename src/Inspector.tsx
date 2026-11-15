@@ -448,6 +448,7 @@ function GraphBlockFields({
           curve={curve}
           machines={machines}
           canRemove={graph.curves.length > 1}
+          follow="This block"
           onCurve={(patch) => onCurve(curve.id, patch)}
           onRemove={() => removeCurve(curve.id)}
         />
