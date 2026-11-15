@@ -157,6 +157,30 @@ export function PulseLayer({ engine }: { engine: Engine }) {
         if (!block || !span) continue;
         const t = (beat - run.start) / (run.end - run.start);
         const node = document.querySelector(`.react-flow__node[data-id="${CSS.escape(run.block)}"]`);
+        // A pulse crossing a graph box glides along each curve at the sweep's
+        // fraction — the paths carry their own polyline for exactly this.
+        const strip = node?.querySelector('.graph-strip');
+        if (strip) {
+          const rect = strip.getBoundingClientRect();
+          const sw = Number(strip.getAttribute('data-w'));
+          const sh = Number(strip.getAttribute('data-h'));
+          if (rect.width > 0 && sw > 0 && sh > 0) {
+            const ux = t * sw;
+            for (const path of strip.querySelectorAll('[data-pts]')) {
+              const pts = (path.getAttribute('data-pts') ?? '').split(' ').map((pair) => pair.split(',').map(Number));
+              for (let i = 0; i + 1 < pts.length; i++) {
+                const [ax, ay] = pts[i];
+                const [bx, by] = pts[i + 1];
+                if (!(ax <= ux && bx >= ux)) continue;
+                const u = bx === ax ? 0 : (ux - ax) / (bx - ax);
+                const uy = ay + (by - ay) * u;
+                dot(rect.left - canvasBox.left + (ux / sw) * rect.width, rect.top - canvasBox.top + ((uy / sh) * rect.height));
+                break;
+              }
+            }
+          }
+          continue;
+        }
         const marks = [...(node?.querySelectorAll('.box-strip [data-at]') ?? [])];
         const inlet = node?.querySelector('.box-in');
         const outlet = node?.querySelector('.box-out');

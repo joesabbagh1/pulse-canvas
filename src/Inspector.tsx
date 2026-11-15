@@ -1,18 +1,21 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 import { CodeField } from './CodeField';
+import { CurveCard, LENGTHS, NumberField, STEPS } from './GraphFields';
 import { KeyField } from './KeyField';
 import { GRID, MAX_SPAN, MIN_SPAN, formatBeats, parseLength, spanOf } from './engine/geometry';
+import { compileCurves, MAX_CURVES, type BlockGraph, type GraphCurve } from './engine/graph';
 import { PATTERN_REFERENCE, compilePattern, starterPattern } from './engine/pattern';
 import { CATEGORIES, instrumentById, instrumentsIn } from './engine/instruments';
 import { hasPitch, type BlockKind } from './engine/scheduler';
 import type { SynthMachine } from './engine/synth';
 import { describePitch, type Scale, type Tuning } from './engine/tuning';
 import type { WaveRole } from './engine/wave';
-import type { BlockData, BlockNode, PatternFigure, RegionData, RegionNode } from './piece';
+import { newId, type BlockData, type BlockNode, type PatternFigure, type RegionData, type RegionNode } from './piece';
 import { RegionInspector } from './RegionInspector';
 import { SynthPatchFields } from './SynthPatchFields';
 import { blockColor, useSettings } from './settings';
 import { Select } from './ui/Select';
+import { Slider } from './ui/Slider';
 
 const REPEATS = [0, 1, 2, 4, 8];
 
@@ -179,7 +182,7 @@ export function Inspector(props: Props) {
         ariaLabel="Instrument"
         searchable
         value={kind}
-        onChange={(value) => set(value === 'start' ? { kind: 'start', pattern: undefined, beats: undefined } : { kind: value as BlockKind })}
+        onChange={(value) => set(value === 'start' ? { kind: 'start', pattern: undefined, beats: undefined, graph: undefined } : { kind: value as BlockKind })}
         groups={[
           { options: [{ value: 'start', label: 'Start' }] },
           ...machineGroups(machines, () => set({ kind: onCreateMachine() as BlockKind })),
@@ -238,7 +241,7 @@ export function Inspector(props: Props) {
         <KeyField value={node.data.key} does="fires this block while playing" taken={takenKeys} onChange={(key) => set({ key })} />
       )}
 
-      {kind !== 'start' && (
+      {kind !== 'start' && node.data.graph === undefined && (
         <PatternFields
           pattern={node.data.pattern}
           beats={spanOf(node.data)}
@@ -248,6 +251,19 @@ export function Inspector(props: Props) {
           onBeats={(beats) => set({ beats })}
           onFigure={(figure) => set({ figure: figure === 'roll' ? undefined : figure })}
           starter={starterPattern(kind)}
+        />
+      )}
+
+      {node.data.graph !== undefined && (
+        <GraphBlockFields
+          graph={node.data.graph}
+          beats={spanOf(node.data)}
+          snap={snap}
+          scale={tuning.scale}
+          rootHz={tuning.rootHz}
+          machines={machines}
+          onGraph={(patch) => set({ graph: { ...node.data.graph!, ...patch } })}
+          onBeats={(beats) => set({ beats })}
         />
       )}
 
@@ -358,6 +374,137 @@ function PatternFields({
         </>
       )}
       {!on && <span className="muted">A pattern is a box: the pulse plays it while crossing, then goes on.</span>}
+    </div>
+  );
+}
+
+/** A graph box's editor: the same curve cards the Graph page shows, plus the box's own sweep length. */
+function GraphBlockFields({
+  graph,
+  beats,
+  snap,
+  scale,
+  rootHz,
+  machines,
+  onGraph,
+  onBeats,
+}: {
+  graph: BlockGraph;
+  beats: number;
+  snap: boolean;
+  scale: Scale;
+  rootHz: number;
+  machines: readonly SynthMachine[];
+  onGraph: (patch: Partial<BlockGraph>) => void;
+  onBeats: (beats: number) => void;
+}) {
+  const curves = compileCurves({ ...graph, loopBeats: 1, run: false });
+  const onCurve = (id: string, patch: Partial<GraphCurve>) =>
+    onGraph({ curves: graph.curves.map((c) => (c.id === id ? { ...c, ...patch } : c)) });
+  const addCurve = () => {
+    if (graph.curves.length >= MAX_CURVES) return;
+    onGraph({
+      curves: [
+        ...graph.curves,
+        { id: newId('graph'), expr: 'cos(x)', kind: graph.curves[graph.curves.length - 1]?.kind ?? 'tone', level: 0.9, shift: 0 },
+      ],
+    });
+  };
+  const removeCurve = (id: string) => onGraph({ curves: graph.curves.filter((c) => c.id !== id) });
+  const autoFit = () => {
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (const { fn } of curves) {
+      for (let i = 0; i <= 256; i++) {
+        const y = fn(graph.x0 + (i / 256) * (graph.x1 - graph.x0));
+        if (Number.isFinite(y)) {
+          lo = Math.min(lo, y);
+          hi = Math.max(hi, y);
+        }
+      }
+    }
+    if (!Number.isFinite(lo) || !Number.isFinite(hi)) return;
+    if (hi - lo < 1e-9) {
+      lo -= 1;
+      hi += 1;
+    }
+    const pad = (hi - lo) * 0.1;
+    const round = (v: number) => Math.round(v * 100) / 100;
+    onGraph({ y0: round(lo - pad), y1: round(hi + pad) });
+  };
+  const bottom = describePitch(graph.baseDegree, scale, rootHz);
+  const top = describePitch(graph.baseDegree + graph.spanDegrees, scale, rootHz);
+
+  return (
+    <div className="field graph-block-fields">
+      <span className="field-label">Graph</span>
+      <span className="muted">
+        A pulse crossing sweeps the window once: a note on every step, each curve on its own instrument.
+      </span>
+      {graph.curves.map((curve, index) => (
+        <CurveCard
+          key={curve.id}
+          index={index}
+          curve={curve}
+          machines={machines}
+          canRemove={graph.curves.length > 1}
+          onCurve={(patch) => onCurve(curve.id, patch)}
+          onRemove={() => removeCurve(curve.id)}
+        />
+      ))}
+      <div className="row">
+        <button onClick={addCurve} disabled={graph.curves.length >= MAX_CURVES}>
+          Add curve
+        </button>
+      </div>
+      <LengthField
+        beats={beats}
+        minBeats={MIN_SPAN}
+        maxBeats={MAX_SPAN}
+        snap={snap}
+        onSet={(next) => onBeats(snap ? Math.round(next / GRID) * GRID : next)}
+        hint="How long one sweep of the window takes. Drag the box's right edge, or type a length."
+      />
+      <div className="segmented" role="group" aria-label="Graph step">
+        {STEPS.map((step) => (
+          <button
+            key={step.label}
+            className={graph.stepBeats === step.beats ? 'is-on' : ''}
+            aria-pressed={graph.stepBeats === step.beats}
+            onClick={() => onGraph({ stepBeats: step.beats })}
+          >
+            {step.label}
+          </button>
+        ))}
+      </div>
+      <div className="segmented" role="group" aria-label="Graph note length">
+        {LENGTHS.map((length) => (
+          <button
+            key={length.label}
+            className={graph.lengthBeats === length.beats ? 'is-on' : ''}
+            aria-pressed={graph.lengthBeats === length.beats}
+            onClick={() => onGraph({ lengthBeats: length.beats })}
+          >
+            {length.label}
+          </button>
+        ))}
+      </div>
+      <div className="graph-window">
+        <NumberField label="x from" value={graph.x0} step={0.5} onValue={(x0) => onGraph({ x0 })} />
+        <NumberField label="x to" value={graph.x1} step={0.5} onValue={(x1) => onGraph({ x1 })} />
+        <NumberField label="y from" value={graph.y0} step={0.5} onValue={(y0) => onGraph({ y0 })} />
+        <NumberField label="y to" value={graph.y1} step={0.5} onValue={(y1) => onGraph({ y1 })} />
+        <button className="graph-fit" onClick={autoFit}>
+          Fit y
+        </button>
+      </div>
+      <Slider label="Bottom degree" value={graph.baseDegree} min={-24} max={24} step={1} reset={-4} format={(v) => `${v}`} onChange={(baseDegree) => onGraph({ baseDegree })} />
+      <Slider label="Degrees tall" value={graph.spanDegrees} min={1} max={48} step={1} reset={16} format={(v) => `${v}`} onChange={(spanDegrees) => onGraph({ spanDegrees })} />
+      <span className="muted">
+        {bottom.name}
+        {bottom.octave} at the bottom to {top.name}
+        {top.octave} at the top.
+      </span>
     </div>
   );
 }

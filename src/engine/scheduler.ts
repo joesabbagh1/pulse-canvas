@@ -1,4 +1,5 @@
 import { GRID, PARALLEL_OFFSET, PX_PER_BEAT, inPort, linkBeats, linkPath, outPort, portGap, spanOf, type LinkPath, type XY } from './geometry';
+import { blockGraphNotes, compileCurves, type BlockGraph, type CurveFn } from './graph';
 import { instrumentById, type InstrumentId } from './instruments';
 import { compilePattern, type Pattern, type PatternNote } from './pattern';
 import { PASS, compile, run, seededRandom, type Outcome, type Program, type RouteMode, type Target } from './script';
@@ -40,7 +41,13 @@ export interface GraphBlock extends Tuning {
   code?: string;
   /** Mini-notation (see pattern.ts). Having one, even empty, makes this a pattern block. */
   pattern?: string;
-  /** Pattern blocks only: how long one pass of the pattern lasts. */
+  /**
+   * Functions of x (see engine/graph.ts). Having one makes this a graph box:
+   * a pulse crossing it sweeps the window left to right, sounding a note on
+   * every step, and goes on when the sweep is done.
+   */
+  graph?: BlockGraph;
+  /** Boxes only: how long one pass lasts. */
   beats?: number;
   /** Name of the per-region bus it plays through; unset is the canvas bus. */
   bus?: string;
@@ -52,6 +59,11 @@ export interface GraphBlock extends Tuning {
 
 /** Voices that hold a note for as long as they're told to. Plucks, mallets and drums ring out on their own. */
 const HELD_VOICES = new Set(['sustain', 'bow', 'blow', 'tone', 'bass', 'khuur', 'acid', 'synth']);
+
+/** How long a held voice sounds a note of `beats`; struck voices keep their own length. */
+export function heldLength(kind: BlockKind, beats: number): number | null {
+  return kind !== 'start' && HELD_VOICES.has(instrumentById(kind)?.voice ?? '') ? beats : null;
+}
 
 /** The block as one note of its pattern plays it, and how long that note lasts. */
 export function patternHit(block: GraphBlock, note: PatternNote, span: number): { block: GraphBlock; length: number | null } {
@@ -181,6 +193,8 @@ export class Scheduler {
   private linkCode = new Map<string, Compiled>();
   /** Each pattern block's pattern: the last one that parsed, so a typo mid-edit doesn't silence it. */
   private patterns = new Map<string, Pattern>();
+  /** Each graph box's curves, compiled. Ones that don't read stay silent until they do. */
+  private graphs = new Map<string, { spec: BlockGraph; curves: CurveFn[] }>();
   /** Pulses through each block and link so far, for "every N:". */
   private blockCounts = new Map<string, number>();
   private linkCounts = new Map<string, number>();
@@ -214,6 +228,7 @@ export class Scheduler {
     this.blockCode = this.compileAll(blocks, 'block', this.blockCode);
     this.linkCode = this.compileAll(links, 'link', this.linkCode);
     this.patterns = this.compilePatterns(blocks, this.patterns);
+    this.graphs = this.compileGraphs(blocks);
     this.rebuildLinks(nowBeat);
     if (this.playing) this.syncStarts(prev, nowBeat);
   }
@@ -340,9 +355,10 @@ export class Scheduler {
     for (const run of this.runs) {
       if (run.cursor >= run.end) continue;
       const block = this.blocks.get(run.block);
+      const graph = block?.graph !== undefined ? this.graphs.get(run.block) : undefined;
       const pattern = this.patterns.get(run.block);
       const until = Math.min(horizon, run.end);
-      if (!block || !pattern || run.hits >= MAX_RUN_HITS) {
+      if (!block || run.hits >= MAX_RUN_HITS || (!graph && !pattern)) {
         run.cursor = run.end;
         continue;
       }
@@ -351,7 +367,29 @@ export class Scheduler {
       const span = run.end - run.start;
       const left = inPort(block, spanOf(block)).x;
       const width = spanOf(block) * PX_PER_BEAT;
-      for (const note of pattern.notes(run.cycle, (run.cursor - run.start) / span, (until - run.start) / span, run)) {
+      if (graph) {
+        // A graph box's pass is one sweep of the window: a note on every step,
+        // each curve on its own instrument, its degree set by its y.
+        for (const note of blockGraphNotes(graph.spec, graph.curves, span, run.cursor - run.start, until - run.start)) {
+          if (run.hits++ >= MAX_RUN_HITS) break;
+          const owner = graph.curves.find((c) => c.index === note.curve);
+          if (!owner) continue;
+          try {
+            this.onHit(
+              { ...block, kind: owner.curve.kind, degree: block.degree + note.degree },
+              run.start + note.beat,
+              run.shift,
+              { velocity: Math.min(1, run.velocity * note.velocity), length: run.length ?? heldLength(owner.curve.kind, note.beats) },
+              { x: left + (note.beat / span) * width, y: block.y },
+            );
+          } catch {
+            // One note must not cancel the rest of the sweep.
+          }
+        }
+        run.cursor = until;
+        continue;
+      }
+      for (const note of pattern!.notes(run.cycle, (run.cursor - run.start) / span, (until - run.start) / span, run)) {
         if (run.hits++ >= MAX_RUN_HITS) break;
         const hit = patternHit(block, note, span);
         const shape = { velocity: run.velocity, length: run.length ?? hit.length, ...(note.accent ? { accent: true } : {}) };
@@ -423,6 +461,15 @@ export class Scheduler {
       const pattern = compilePattern(source);
       const old = prev.get(id);
       next.set(id, pattern.error && old && !old.error ? old : pattern);
+    }
+    return next;
+  }
+
+  private compileGraphs(blocks: GraphBlock[]) {
+    const next = new Map<string, { spec: BlockGraph; curves: CurveFn[] }>();
+    for (const block of blocks) {
+      if (block.graph === undefined) continue;
+      next.set(block.id, { spec: block.graph, curves: compileCurves({ ...block.graph, loopBeats: 1, run: false }) });
     }
     return next;
   }

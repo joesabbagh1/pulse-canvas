@@ -9,11 +9,12 @@ import { Mixer, type BusSettings } from './mixer';
 import { WavRecorder } from './recorder';
 import { loadSampleBytes } from './samples';
 import { Ear } from './ear';
-import { spanOf, type XY } from './geometry';
+import { isBox, spanOf, type XY } from './geometry';
 import { guardTimers } from './timers';
 import { compilePattern } from './pattern';
+import { blockGraphNotes, compileCurves } from './graph';
 import { degreeToHz } from './tuning';
-import { Scheduler, patternHit, type BlockKind, type GraphBlock, type GraphLink, type NoteShape } from './scheduler';
+import { Scheduler, heldLength, patternHit, type BlockKind, type GraphBlock, type GraphLink, type NoteShape } from './scheduler';
 import { busWavesKey, type BusWaves } from './wave';
 
 // Sound is scheduled on the audio clock, a little ahead of time, never from
@@ -113,7 +114,7 @@ export class Engine {
     this.mixer?.park(this.buses, now);
   }
 
-  /** Play one block's sound right now, outside the pulse flow. A pattern block plays one pass. */
+  /** Play one block's sound right now, outside the pulse flow. A box plays one pass. */
   async audition(block: GraphBlock) {
     const mixer = await this.ensureAudio();
     const start = this.audioNow() + 0.01;
@@ -121,6 +122,20 @@ export class Engine {
     const span = spanOf(block);
     if (!span) {
       mixer.play(block, start, beat);
+      return;
+    }
+    if (block.graph !== undefined) {
+      const curves = compileCurves({ ...block.graph, loopBeats: 1, run: false });
+      for (const note of blockGraphNotes(block.graph, curves, span, 0, span)) {
+        const owner = curves.find((c) => c.index === note.curve);
+        if (!owner) continue;
+        mixer.play(
+          { ...block, kind: owner.curve.kind, degree: block.degree + note.degree },
+          start + note.beat * beat,
+          beat,
+          { velocity: note.velocity, length: heldLength(owner.curve.kind, note.beats) },
+        );
+      }
       return;
     }
     for (const note of compilePattern(block.pattern ?? '').notes(0)) {
@@ -201,9 +216,10 @@ export class Engine {
 
   setGraph(blocks: GraphBlock[], links: GraphLink[]) {
     this.scheduler.setGraph(blocks, links, this.currentBeat());
-    const patterns = new Set(blocks.filter((block) => block.pattern !== undefined).map((block) => block.id));
-    this.ear.drop(patterns);
-    this.mixer?.dropLanes(patterns);
+    // Boxes get the ear's scope and their own tone lane, patterns and graphs alike.
+    const boxes = new Set(blocks.filter(isBox).map((block) => block.id));
+    this.ear.drop(boxes);
+    this.mixer?.dropLanes(boxes);
   }
 
   /** Each region's mix, effects and sample, by region id. */
@@ -387,7 +403,7 @@ export class Engine {
     const felt = { ...shape, velocity: shape.velocity * nudge.velocity * (block.level ?? 1) };
     const sounding = { ...block, degree: block.degree + shift };
     this.mixer?.play(sounding, time, this.clock.secondsPerBeat, felt);
-    if (block.pattern !== undefined) {
+    if (isBox(block)) {
       const hz = degreeToHz(sounding.degree, sounding.scale, sounding.rootHz);
       const seconds = (shape.length ?? 0.15) * this.clock.secondsPerBeat;
       try {

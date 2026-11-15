@@ -48,7 +48,8 @@ export const DEFAULT_GRAPH: GraphSpec = {
   x1: 16,
   y0: -1.2,
   y1: 1.2,
-  loopBeats: 16,
+  // Eight beats keeps a sent box a sane size on the canvas (240px a beat).
+  loopBeats: 8,
   stepBeats: 0.25,
   lengthBeats: null,
   baseDegree: -4,
@@ -60,6 +61,35 @@ export interface CurveFn {
   curve: GraphCurve;
   fn: ExprFn;
   index: number;
+}
+
+/**
+ * A graph box's share of the spec: everything but the page's sweep length
+ * (the box's `beats` is that — distance is time) and its Run switch (playing
+ * is the canvas's transport).
+ */
+export type BlockGraph = Omit<GraphSpec, 'loopBeats' | 'run'>;
+
+export const DEFAULT_BLOCK_GRAPH: BlockGraph = (() => {
+  const { loopBeats: _loop, run: _run, ...rest } = DEFAULT_GRAPH;
+  return rest;
+})();
+
+/** The same safety net, for a graph riding on a block. */
+export function clampBlockGraph(v: unknown, kindOk: (kind: string) => boolean = (k) => !!instrumentById(k)): BlockGraph {
+  const { loopBeats: _loop, run: _run, ...rest } = clampGraph(v, kindOk);
+  return rest;
+}
+
+/** One sweep of the window across `span` beats — the box's whole pass. */
+export function blockGraphNotes(
+  spec: BlockGraph,
+  curves: readonly CurveFn[],
+  span: number,
+  fromBeat: number,
+  toBeat: number,
+): GraphNote[] {
+  return graphNotes({ ...spec, loopBeats: span, run: false }, curves, fromBeat, toBeat);
 }
 
 /** Compiles every curve; the ones that don't read are left out until they do. */

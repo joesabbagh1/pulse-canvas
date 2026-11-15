@@ -1,22 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Engine } from './engine/engine';
-import { compileExpr } from './engine/fexpr';
-import { CATEGORIES, instrumentsIn } from './engine/instruments';
 import {
   MAX_CURVES,
   MAX_GRAPH_NOTES,
   compileCurves,
   graphNotes,
   xAt,
+  type BlockGraph,
   type GraphCurve,
   type GraphSpec,
 } from './engine/graph';
+import { MAX_SPAN } from './engine/geometry';
 import type { BlockKind } from './engine/scheduler';
 import { describePitch, type Scale } from './engine/tuning';
 import type { SynthMachine } from './engine/synth';
-import { graphPhrases, type Note } from './melody';
+import { CurveCard, LENGTHS, NumberField, PRESETS, STEPS, dashOf } from './GraphFields';
 import { Slider } from './ui/Slider';
-import { Select, type SelectGroup } from './ui/Select';
 import { token } from './ui/theme';
 
 // The graph page: functions of x on a window, swept by a pulse. The x axis is
@@ -39,29 +38,9 @@ interface GraphPageProps {
   onRemoveCurve: (id: string) => void;
   /** Starts the piece's transport if it isn't running. */
   onPlay: () => void;
-  /** Places one pass of each curve as a loop of blocks on the canvas. */
-  onSend: (rows: { kind: BlockKind; notes: Note[] }[]) => void;
+  /** Places the graph on the canvas as one graph box. */
+  onSend: (seed: { kind: string; degree: number; graph: BlockGraph; beats: number }) => void;
 }
-
-const PRESETS = ['sin(x)', 'sin(x)+sin(3x)/3', 'floor(x)', 'abs(sin(x))-0.5', 'sign(sin(x))', 'tan(x)/4'];
-
-const STEPS: { label: string; beats: number }[] = [
-  { label: '1', beats: 1 },
-  { label: '1/2', beats: 0.5 },
-  { label: '1/4', beats: 0.25 },
-  { label: '1/8', beats: 0.125 },
-];
-
-const LENGTHS: { label: string; beats: number | null }[] = [
-  { label: 'Step', beats: null },
-  { label: '1/4', beats: 0.25 },
-  { label: '1/2', beats: 0.5 },
-  { label: '1', beats: 1 },
-  { label: '2', beats: 2 },
-];
-
-// The curves are told apart by their stroke, not a colour: ink is for pitch.
-const dashOf = (index: number) => (index % 4 === 0 ? '' : index % 4 === 1 ? '7 5' : index % 4 === 2 ? '2 4' : '12 5 2 5');
 
 /** A note the pager has scheduled, kept around to flash on the plot. */
 interface FlashNote {
@@ -88,42 +67,6 @@ function fmtTick(v: number, step: number): string {
   return v.toFixed(digits).replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1');
 }
 
-/** A number field that lets you type (a "-", a blank) without losing the value. */
-function NumberField({ label, value, step, onValue }: { label: string; value: number; step: number; onValue: (v: number) => void }) {
-  const [text, setText] = useState(() => String(value));
-  useEffect(() => {
-    const typed = Number(text);
-    if (!(Number.isFinite(typed) && typed === value)) setText(String(value));
-    // Only the value coming back changed should rewrite the field.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [value]);
-  return (
-    <label className="field">
-      <span className="field-label">{label}</span>
-      <input
-        type="number"
-        aria-label={label}
-        value={text}
-        step={step}
-        onChange={(e) => {
-          setText(e.target.value);
-          const n = Number(e.target.value);
-          if (e.target.value.trim() !== '' && Number.isFinite(n)) onValue(n);
-        }}
-      />
-    </label>
-  );
-}
-
-function CurveSwatch({ index }: { index: number }) {
-  const dash = dashOf(index);
-  return (
-    <svg className="graph-swatch" viewBox="0 0 28 8" width="28" height="8" aria-hidden="true">
-      <line x1="1" y1="4" x2="27" y2="4" strokeWidth="2.5" strokeDasharray={dash || undefined} />
-    </svg>
-  );
-}
-
 export function GraphPage({
   bpm,
   playing,
@@ -148,17 +91,6 @@ export function GraphPage({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const flashesRef = useRef<FlashNote[]>([]);
   const windowsRef = useRef(new Set<number>());
-
-  const instrumentGroups = useMemo<SelectGroup[]>(
-    () => [
-      ...(machines.length ? [{ label: 'Machines', options: machines.map((m) => ({ value: m.id, label: m.name })) }] : []),
-      ...CATEGORIES.map((category) => ({
-        label: category.label,
-        options: instrumentsIn(category.id).map((inst) => ({ value: inst.id, label: inst.name })),
-      })),
-    ],
-    [machines],
-  );
 
   // The pager: while the transport runs, keep scheduling windows of notes on
   // the audio clock, just ahead of the beat. Curves are read here, in the
@@ -399,8 +331,19 @@ export function GraphPage({
   }, [graph, curves, playing, engine, scale, rootHz, selectedId]);
 
   const steps = Math.round(graph.loopBeats / graph.stepBeats);
-  const rows = useMemo(() => graphPhrases(graph, curves), [graph, curves]);
-  const sendable = rows.length > 0 && steps <= MAX_GRAPH_NOTES;
+  const sendable = curves.length > 0 && steps <= MAX_GRAPH_NOTES && graph.loopBeats <= MAX_SPAN;
+  const sendTitle = !curves.length
+    ? 'Nothing to send — no curve reads yet'
+    : steps > MAX_GRAPH_NOTES
+      ? 'Too many steps — coarsen the step or shorten the loop first'
+      : graph.loopBeats > MAX_SPAN
+        ? `A box runs at most ${MAX_SPAN} beats — shorten the loop first`
+        : 'Place this graph on the canvas as one box';
+  const send = () => {
+    if (!sendable) return;
+    const { loopBeats: _loop, run: _run, ...blockGraph } = graph;
+    onSend({ kind: graph.curves[0]?.kind ?? 'tone', degree: 0, graph: blockGraph, beats: graph.loopBeats });
+  };
 
   const root = describePitch(0, scale, rootHz);
   const runHint = graph.run
@@ -448,67 +391,19 @@ export function GraphPage({
           Functions of x, swept left to right by the pulse. Each step sounds the y it finds, in {scale.name}. Root {root.name}
           <sub>{root.octave}</sub> · {bpm} BPM.
         </p>
-        {graph.curves.map((curve, index) => {
-          const compiled = compileExpr(curve.expr);
-          const selected = curve.id === selectedId;
-          return (
-            <div key={curve.id} className={`graph-curve${selected ? ' is-on' : ''}`}>
-              <div className="graph-curve-head">
-                <button type="button" className="graph-curve-select" aria-pressed={selected} onClick={() => setSelectedId(curve.id)}>
-                  <CurveSwatch index={index} />
-                  <span>y{index + 1}</span>
-                </button>
-                <button
-                  type="button"
-                  className="graph-curve-remove"
-                  aria-label={`Remove y${index + 1}`}
-                  disabled={graph.curves.length <= 1}
-                  onClick={() => onRemoveCurve(curve.id)}
-                >
-                  ×
-                </button>
-              </div>
-              <textarea
-                className="code graph-expr"
-                aria-label={`Function for y${index + 1}`}
-                rows={2}
-                spellCheck={false}
-                value={curve.expr}
-                onChange={(e) => onCurve(curve.id, { expr: e.target.value })}
-              />
-              {compiled.error && <p className="code-errors warn">{compiled.error}</p>}
-              <Select
-                ariaLabel={`Instrument for y${index + 1}`}
-                value={curve.kind}
-                searchable
-                groups={instrumentGroups}
-                onChange={(kind) => onCurve(curve.id, { kind })}
-              />
-              <div className="graph-curve-sliders">
-                <Slider
-                  label="Level"
-                  value={curve.level}
-                  min={0}
-                  max={1}
-                  step={0.05}
-                  reset={0.9}
-                  format={(v) => `${Math.round(v * 100)}%`}
-                  onChange={(level) => onCurve(curve.id, { level })}
-                />
-                <Slider
-                  label="Shift"
-                  value={curve.shift}
-                  min={-24}
-                  max={24}
-                  step={1}
-                  reset={0}
-                  format={(v) => `${v > 0 ? '+' : ''}${v}`}
-                  onChange={(shift) => onCurve(curve.id, { shift })}
-                />
-              </div>
-            </div>
-          );
-        })}
+        {graph.curves.map((curve, index) => (
+          <CurveCard
+            key={curve.id}
+            index={index}
+            curve={curve}
+            selected={curve.id === selectedId}
+            machines={machines}
+            canRemove={graph.curves.length > 1}
+            onSelect={() => setSelectedId(curve.id)}
+            onRemove={() => onRemoveCurve(curve.id)}
+            onCurve={(patch) => onCurve(curve.id, patch)}
+          />
+        ))}
         <button type="button" className="graph-add" disabled={graph.curves.length >= MAX_CURVES} onClick={onAddCurve}>
           Add curve
         </button>
@@ -536,8 +431,8 @@ export function GraphPage({
             type="button"
             className="play"
             disabled={!sendable}
-            title={steps > MAX_GRAPH_NOTES ? 'Too many notes for one pass — coarsen the step or shorten the loop' : 'Place one pass of each curve on the canvas'}
-            onClick={() => onSend(rows)}
+            title={sendTitle}
+            onClick={send}
           >
             Send to canvas
           </button>
@@ -556,7 +451,7 @@ export function GraphPage({
               min={2}
               max={64}
               step={0.5}
-              reset={16}
+              reset={8}
               format={(v) => `${v} beats`}
               onChange={(loopBeats) => onGraph({ loopBeats })}
             />

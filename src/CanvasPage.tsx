@@ -88,6 +88,7 @@ interface Props {
   onPencil: () => void;
   onAdd: (kind: BlockKind) => void;
   onAddPattern: () => void;
+  onAddGraph: () => void;
   onAddRegion: () => void;
   onStamp: (stamp: Stamp) => void;
   onChangeBlock: (id: string, patch: Partial<BlockData>) => void;
@@ -188,6 +189,7 @@ export function CanvasPage(props: Props) {
             onPencil={props.onPencil}
             onAdd={props.onAdd}
             onAddPattern={props.onAddPattern}
+            onAddGraph={props.onAddGraph}
             onAddRegion={props.onAddRegion}
             onStamp={props.onStamp}
             machines={props.machines}

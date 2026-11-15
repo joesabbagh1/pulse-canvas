@@ -1,16 +1,19 @@
 import { Handle, Position, useReactFlow, type NodeProps } from '@xyflow/react';
 import { memo, useMemo, useSyncExternalStore, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { BOX_HEIGHT, GRID, MAX_SPAN, MIN_SPAN, PX_PER_BEAT, formatBeats, patternFrame, spanOf } from '../engine/geometry';
+import { blockGraphNotes, compileCurves, DEFAULT_BLOCK_GRAPH, xAt } from '../engine/graph';
 import { instrumentById } from '../engine/instruments';
 import { PatternFigure, scaleSteps } from './figures';
 import { livePass, subscribeLive } from './livePass';
 import { compilePattern } from '../engine/pattern';
 import { compile, run, type Target } from '../engine/script';
 import { describePitch } from '../engine/tuning';
+import { dashOf } from '../GraphFields';
 import { isBlock, type BlockNode, type CanvasNode, type LinkEdge } from '../piece';
 import { blockColor, useBlockTuning, useSettings } from '../settings';
 
 function BlockView(props: NodeProps<BlockNode>) {
+  if (props.data.graph !== undefined) return <GraphBox {...props} />;
   return props.data.pattern === undefined ? <Disc {...props} /> : <PatternBox {...props} />;
 }
 
@@ -171,6 +174,149 @@ function PatternBox({ id, data, selected }: NodeProps<BlockNode>) {
         steps={scaleSteps(scale)}
         root={data.degree + (passing?.shift ?? resting.transpose)}
       />
+      <Resize id={id} span={span} />
+      <span className="box-port box-in" aria-hidden="true" />
+      <Handle type="source" position={Position.Right} className="box-port box-out" isConnectableEnd={false} title="Drag to link it on" />
+      <Handle type="target" position={Position.Left} className="box-drop" isConnectableStart={false} />
+    </div>
+  );
+}
+
+// A graph block is a box as wide as its sweep: one pass from the left edge to
+// the right is one sweep of the math window, a note on every step. The curves
+// are drawn on the box in ink, told apart like the page does it, and the pulse
+// glides along them (PulseLayer reads the same paths through data-pts).
+const GRAPH_STRIP_H = 88;
+
+function GraphBox({ id, data, selected }: NodeProps<BlockNode>) {
+  const { scale } = useBlockTuning(id);
+  const { updateNodeData } = useReactFlow<CanvasNode, LinkEdge>();
+  const badge = useCodeBadge(data.code, 'block');
+  const span = spanOf(data);
+  const width = span * PX_PER_BEAT;
+  const graph = data.graph ?? DEFAULT_BLOCK_GRAPH;
+  const curves = useMemo(() => compileCurves({ ...graph, loopBeats: 1, run: false }), [graph]);
+  const notes = useMemo(() => blockGraphNotes(graph, curves, span, 0, span), [graph, curves, span]);
+  const stripW = Math.max(8, width - 26);
+  const stripH = GRAPH_STRIP_H;
+  const color = blockColor(data.kind, data.degree, scale);
+  const yToU = (y: number) => stripH * (1 - (y - graph.y0) / (graph.y1 - graph.y0));
+
+  // Each curve's polyline in strip units, in runs: a y outside the window
+  // breaks the line, the way the page's plot lifts its pen.
+  const polylines = curves.map(({ fn }) => {
+    const runs: [number, number][][] = [];
+    let pts: [number, number][] | null = null;
+    const N = 64;
+    for (let j = 0; j <= N; j++) {
+      const ux = Math.round(((j / N) * stripW) * 10) / 10;
+      const y = fn(xAt({ ...graph, loopBeats: span, run: false }, (j / N) * span));
+      if (Number.isFinite(y) && y >= graph.y0 && y <= graph.y1) {
+        const point: [number, number] = [ux, Math.round(yToU(y) * 10) / 10];
+        if (pts) pts.push(point);
+        else pts = [point];
+      } else if (pts) {
+        runs.push(pts);
+        pts = null;
+      }
+    }
+    if (pts) runs.push(pts);
+    return runs;
+  });
+
+  // One mark per note, thinned when the grid is dense, so the flash rings have
+  // somewhere to land — the same contract the figures' notes carry.
+  const markStride = Math.max(1, Math.ceil(notes.length / 128));
+  const marks = notes
+    .filter((_, i) => i % markStride === 0)
+    .map((note) => {
+      const owner = curves.find((c) => c.index === note.curve);
+      if (!owner) return null;
+      const at = note.beat / span;
+      const y = owner.fn(xAt({ ...graph, loopBeats: span, run: false }, note.beat));
+      if (!Number.isFinite(y) || y < graph.y0 || y > graph.y1) return null;
+      return {
+        at,
+        spanU: note.beats / span,
+        x: at * stripW,
+        y: yToU(y),
+        fill: blockColor(owner.curve.kind, data.degree + note.degree, scale),
+      };
+    });
+
+  // The pitch rows: one line per scale degree the window is tall, thinned.
+  const rowPx = stripH / Math.max(1, graph.spanDegrees);
+  const rowStride = rowPx >= 5 ? 1 : Math.ceil(5 / rowPx);
+
+  return (
+    <div
+      className={`box graph-box${selected ? ' is-selected' : ''}`}
+      style={{ '--c': color, width, height: BOX_HEIGHT } as CSSProperties}
+      title={graph.curves.map((c) => `y = ${c.expr}`).join('\n')}
+    >
+      <div className="box-head">
+        <span className="box-name">Graph</span>
+        {badge && (
+          <span className={`box-code ${badge.className}`} title={badge.title}>
+            ƒ
+          </span>
+        )}
+        <input
+          className="box-level nodrag nopan"
+          type="range"
+          min={0}
+          max={1}
+          step={0.01}
+          value={data.level ?? 1}
+          aria-label="Level"
+          title="How loud this graph is"
+          onChange={(e) => {
+            const level = Math.min(1, Math.max(0, Number(e.target.value)));
+            updateNodeData(id, { level: level >= 0.999 ? undefined : level });
+          }}
+        />
+        <input
+          className="box-level nodrag nopan"
+          type="range"
+          min={0}
+          max={1}
+          step={0.01}
+          value={data.tone ?? 1}
+          aria-label="Filter"
+          title="How open this graph's filter is. Fully right is bright."
+          onChange={(e) => {
+            const tone = Math.min(1, Math.max(0, Number(e.target.value)));
+            updateNodeData(id, { tone: tone >= 0.999 ? undefined : tone });
+          }}
+        />
+        <span className="box-beats" title="Its length in beats: how long one sweep of the window takes">
+          {formatBeats(span, true)}
+        </span>
+      </div>
+      <svg className="box-strip graph-strip" width={stripW} height={stripH} viewBox={`0 0 ${stripW} ${stripH}`} data-w={stripW} data-h={stripH}>
+        {Array.from({ length: Math.floor(graph.spanDegrees / rowStride) + 1 }, (_, i) => graph.baseDegree + i * rowStride)
+          .filter((degree) => degree <= graph.baseDegree + graph.spanDegrees)
+          .map((degree) => {
+          const uy = yToU(graph.y0 + ((degree - graph.baseDegree) / graph.spanDegrees) * (graph.y1 - graph.y0));
+          return <line key={degree} className={degree === 0 ? 'graph-axis' : 'graph-row'} x1={0} x2={stripW} y1={uy} y2={uy} />;
+        })}
+        {curves.map(({ curve, index }, i) =>
+          polylines[i].map((pts, k) => (
+            <path
+              key={`${curve.id}-${k}`}
+              className="graph-curve-line"
+              d={pts.map(([x, y], j) => `${j === 0 ? 'M' : 'L'}${x},${y}`).join('')}
+              strokeDasharray={dashOf(index) || undefined}
+              data-pts={pts.map(([x, y]) => `${x},${y}`).join(' ')}
+            />
+          )),
+        )}
+        {marks.map((mark, i) =>
+          mark ? (
+            <circle key={i} className="graph-mark" data-at={mark.at} data-span={mark.spanU} cx={mark.x} cy={mark.y} r={2.5} fill={mark.fill} />
+          ) : null,
+        )}
+      </svg>
       <Resize id={id} span={span} />
       <span className="box-port box-in" aria-hidden="true" />
       <Handle type="source" position={Position.Right} className="box-port box-out" isConnectableEnd={false} title="Drag to link it on" />

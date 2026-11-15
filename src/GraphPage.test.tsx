@@ -4,9 +4,8 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { GraphPage } from './GraphPage';
 import { Engine } from './engine/engine';
-import { clampGraph, DEFAULT_GRAPH, type GraphCurve, type GraphSpec } from './engine/graph';
+import { clampGraph, DEFAULT_GRAPH, type BlockGraph, type GraphCurve, type GraphSpec } from './engine/graph';
 import { SCALES } from './engine/tuning';
-import type { Note } from './melody';
 
 beforeAll(() => {
   globalThis.ResizeObserver = class {
@@ -23,7 +22,7 @@ interface Calls {
   adds: number;
   removes: string[];
   plays: number;
-  sends: { kind: string; notes: Note[] }[][];
+  sends: { kind: string; degree: number; graph: BlockGraph; beats: number }[];
 }
 
 /** The page's callbacks, applied the way App does, so the page sees its edits. */
@@ -50,7 +49,7 @@ function Harness({ graph, playing, engine, calls }: { graph: GraphSpec; playing:
       onAddCurve={() => (calls.adds += 1)}
       onRemoveCurve={(id) => calls.removes.push(id)}
       onPlay={() => (calls.plays += 1)}
-      onSend={(rows) => calls.sends.push(rows)}
+      onSend={(seed) => calls.sends.push(seed)}
     />
   );
 }
@@ -117,10 +116,11 @@ describe('graph page', () => {
     const [startBeat, block, notes] = phraseAt.mock.calls[0];
     expect(startBeat).toBe(0);
     expect(block.kind).toBe('tone');
-    // The window [0, 0.5) holds steps 0 and 1/4: sin at 0 and at 1/4.
+    // The window [0, 0.5) holds steps 0 and 1/4: sin at 0 and at 1/4. The
+    // 16-wide window sweeps over the default 8-beat loop: x = beat × 2.
     expect(notes.map((n: { at: number; degree: number }) => [n.at, n.degree])).toEqual([
       [0, 4],
-      [0.25, 6],
+      [0.25, 7],
     ]);
     // A later tick doesn't schedule the same window twice.
     await act(async () => vi.advanceTimersByTime(120));
@@ -136,20 +136,18 @@ describe('graph page', () => {
     expect(page.calls.plays).toBe(0);
   });
 
-  it('sends one pass, notes summing to the loop, with length and level code', async () => {
+  it('sends the graph as one box seed: curves, window, and the loop as its length', async () => {
     const engine = new Engine();
     const page = await mountPage(DEFAULT_GRAPH, false, engine);
     ({ host, root } = page);
     await click([...host.querySelectorAll('button')].find((b) => b.textContent === 'Send to canvas')!);
-    const rows = page.calls.sends[0];
-    expect(rows).toHaveLength(1);
-    expect(rows![0].kind).toBe('tone');
-    const notes = rows![0].notes;
-    expect(notes).toHaveLength(64);
-    expect(notes.reduce((sum, n) => sum + n.beats, 0)).toBeCloseTo(16, 6);
-    expect(notes[0].degree).toBe(4);
-    expect(notes[0].extra).toContain('length 1/4');
-    expect(notes[0].extra).toContain('velocity 90%');
+    const seed = page.calls.sends[0]!;
+    expect(seed.kind).toBe('tone');
+    expect(seed.beats).toBe(8);
+    expect(seed.graph.curves.map((c) => c.expr)).toEqual(['sin(x)']);
+    // The box's share of the spec: no loop length of its own, no Run switch.
+    expect('loopBeats' in seed.graph).toBe(false);
+    expect('run' in seed.graph).toBe(false);
   });
 
   it('applies presets to the selected curve and edits the window', async () => {

@@ -1,59 +1,49 @@
-# Graph page — type math functions, watch the pulse sweep x, hear the y as music
+# Graph boxes on the canvas — the plot as its own container, pulse gliding along the curve
 
 ## Context
 
-The Instagram reference (a "function sonification" reel, login-walled — same concept as Desmos audio-trace) shows: you type math functions, they plot on x/y axes, a pulse sweeps the x-axis, and each y-value becomes a note. The ask: build that surface in tek, with everything configurable (functions, instruments, ranges, timing) — and let the result feed the rest of the app.
+The Graph page's "Send to canvas" currently bakes the pass into ~128 circular note blocks. The user wants the graph itself to live on the canvas: its own UI container that shows the same plot as the Graph page — axes, function curves, note marks — with the pulse gliding along the function line while it plays. The codebase already has the exact template: **pattern blocks**. A block becomes a box via a data field (`pattern`); a pulse arriving starts a `Run` that emits notes across the box's span and departs at its end. We mirror that with a `graph` field.
 
-Design in one line: **the graph is a live note source on the piece's transport.** x is time (the beat clock), the sweep is the playhead, y maps to a scale degree, and each curve sounds on its own instrument through the existing mixer. "Send to canvas" bakes one pass into blocks/links so a graph becomes an editable, shareable part of the piece.
+**Model in one line**: a graph box is `span` beats wide (distance-is-time); one pass = one sweep of the math window `[x0, x1]`; on each step grid point every curve's y becomes a note on that curve's own instrument; the pulse dot rides each curve at the sweep fraction.
 
-Everything reuses proven paths:
-- `engine.phrase()` (src/engine/engine.ts:167) — the deck already schedules arbitrary note lists on the audio clock via a synthetic `GraphBlock`; we add a beat-anchored variant.
-- `phraseLoop()` (src/melody.ts:37) — bakes notes into canvas geometry.
-- `PulseLayer` (src/canvas/PulseLayer.tsx) — rAF drawing that reads `engine.heardNow()`; "drawing never drives timing".
-- The SynthPage recipe (route → TopBar tab → App branch → readPiece gate), documented in `.zcode/plans/plan-sess_2622780c….md`.
-- `script.ts` — precedent for a pure, interpreted mini-language (never `eval`), with typed errors.
+## Engine (pure, testable)
 
-## New files
+1. **`src/engine/graph.ts`** — `export type BlockGraph = Omit<GraphSpec, 'loopBeats' | 'run'>` (curves/window/step/length/degrees live per block; the box's `beats` IS the sweep length). `DEFAULT_BLOCK_GRAPH`, `clampBlockGraph(v, kindOk)` (same clamps as `clampGraph`), and `blockGraphNotes(spec, curves, span, fromBeat, toBeat)` = `graphNotes({ ...spec, loopBeats: span }, ...)` — zero new sampling math.
 
-### 1. `src/engine/fexpr.ts` — pure expression compiler (+ `fexpr.test.ts`)
-Recursive-descent parser/evaluator, interpreted (a shared piece can't run code — same stance as block/link script):
-- Numbers, `x`, `pi`, `e`, `+ - * / %`, `^` (right-assoc), unary minus, parentheses.
-- Calls: `sin cos tan asin acos atan atan2 abs sqrt floor ceil round exp ln log2 sign min max pow mod`.
-- `compileExpr(src): { fn: (x: number) => number; error: null } | { fn: null; error: string }` with the offending token named. Cap source at 200 chars. NaN/±Inf flow through (rests, handled downstream).
+2. **`src/engine/geometry.ts`** — box-ness becomes `isBox(block) = pattern !== undefined || graph !== undefined`; `spanOf`/`patternFrame` accept `{ pattern?, beats?, graph? }` so graph boxes size to `beats × BOX_HEIGHT` and every existing caller (link geometry, loops stat, deck `pointOf`) works unchanged. Box length caps at `MAX_SPAN` (32 beats).
 
-### 2. `src/engine/graph.ts` — data model + sampling (+ `graph.test.ts`)
-```ts
-interface GraphCurve { id: string; expr: string; kind: string; level: number; shift: number } // instrument/machine id, 0..1, degree offset
-interface GraphSpec { curves: GraphCurve[]; x0: number; x1: number; y0: number; y1: number;
-  loopBeats: number; stepBeats: number; lengthBeats: number | null; baseDegree: number; spanDegrees: number; run: boolean }
-DEFAULT_GRAPH + clampGraph()
-```
-- `graphWindow(spec, fns, scale, fromBeat, toBeat)` → per-curve `{ at, degree, velocity }[]`: step k at beat `k * stepBeats`, x = `x0 + (beat mod loopBeats)/loopBeats * (x1-x0)`; y → degree by linear map of the y-window onto `baseDegree … baseDegree+spanDegrees`, rounded to an integer scale degree (pitch stays tek-native: degrees, any tuning) + curve `shift`; NaN/out-of-range → rest.
-- Pure and beat-based → headless vitest with `describePitch` assertions (the established scheduler-test idiom).
+3. **`src/engine/scheduler.ts`** — `GraphBlock` gains `graph?: BlockGraph`. Where patterns are compiled on `setGraph`, also store per-block compiled `CurveFn[]` (bad curves drop out silently until they read). `release()` needs no change (`spanOf` now returns the box span → Run + departure at `beat + span` for free). In `playRuns()`, a run on a graph block sources notes from `blockGraphNotes(spec, curves, span, run.cursor − run.start, until − run.start)` and assembles each hit like `patternHit` does: per-note `kind = curve.kind`, `degree = block.degree + note.degree` (block degree = transpose, block `code` transpose applies via run shift), `length = note.beats` for held voices, `velocity = run.velocity × curve.level`, `at = { x: inPort.x + (note.beat/span)·width, y: block.y }` so flash rings land on the box. `MAX_RUN_HITS` guards as usual.
 
-### 3. `src/GraphPage.tsx` — the page (+ `GraphPage.test.tsx`, jsdom like `BedLane.test.tsx`)
-Layout like SynthPage (`.page` chrome):
-- **Left rail — curves** (up to 4): color swatch, expression field (CodeField-style live validation against `compileExpr`), instrument `Select` (catalog groups + this piece's machines), level `Slider`, remove button. Preset chips: `sin(x)`, `sin(x)+sin(3x)/3`, `floor(x)`, `abs(sin(x))-0.5`, `sign(sin(x))`, `tan(x)/4`.
-- **Center — the plot**: HTML canvas 2D, dpr-aware, colors from `token('--ink')`/`token('--ink-rgb')` (PulseLayer idioms; tolerate jsdom's no-op context). Axes + ticks, faint degree gridlines (pitch rows), curves sampled per ~2px, sweeping playhead line with a dot on each curve, fired-note flashes that fade.
-- **Config**: x window (x0/x1), y window (y0/y1 + Auto-fit from sampled y), loop length (beats), step (segmented 1, 1/2, 1/4, 1/8), note length, base degree + span, Run toggle.
-- **Playback**: the graph layer rides the piece transport — TopBar Play + per-page Run toggle. A pager (`window.setInterval` ~50 ms, lookahead ~0.25 s in beats via `engine.clock.beatAt(engine.heardNow() + 0.25)`) materializes `graphWindow` chunks and calls the new `engine.phraseAt`. Scheduled-window map so live edits (function, range, bpm) reshape only future windows. Functions are evaluated in React-land only, never inside a Tone timer (per `engine/timers.ts`). On a fresh/empty canvas you hear just the graph; over a playing piece it layers.
-- **Send to canvas**: one loop pass → `phraseLoop()` geometry placed at a free spot, linked to the start block (add `songStart` if none) — rides autosave/undo/share for free. Cap ~200 notes per bake, toast confirms.
+4. **`src/engine/engine.ts`** — ear-ping and `setGraph`'s pattern set (ear + mixer private lanes) key on `isBox` instead of `pattern !== undefined`, so graph boxes get the oscilloscope strip and `tone` lanes. `audition()` gains a graph branch: stopped-state preview plays one full pass via `blockGraphNotes` + `mixer.play`.
 
-## Modified files
+5. **Persistence** — `src/piece.ts`: `BlockData.graph?: BlockGraph` (toGraph spreads data → scheduler gets it; toNodes sizes via `patternFrame`). `src/readPiece.ts`: block reader keeps `graph: clampBlockGraph(v.graph, kindOk)` (machines included), keeps `beats`/`level`/`tone` for graph blocks, `figure` stays pattern-only. Deck: `DeckBlock` + `blockFields` pass `graph` through so a deck edit of another field can't strip it (full deck editing out of scope).
 
-- **`src/engine/engine.ts`** — add `phraseAt(startBeat, block, notes)` beside `phrase()`: identical attack/release-on-audio-clock path but anchored to `clock.timeAt(startBeat + note.at)`, clamped to `audioNow() + 0.01`.
-- **`src/piece.ts`** — `graph?: GraphSpec` on `Piece`; default in `emptyPiece()`.
-- **`src/readPiece.ts`** — `readGraph()` gate: clamp numbers, curves ≤ 4, expr ≤ 200 chars, kinds validated like block kinds (unknown → `tone`); `LIMITS.graphCurves = 4`, `LIMITS.expr = 200`.
-- **`src/ui/route.ts`** — `'graph'` route + `PAGES`.
-- **`src/TopBar.tsx`** — `APP_TABS` entry `{ route: 'graph', label: 'Graph' }`.
-- **`src/App.tsx`** — `graph` state from the piece (machines pattern): render branch `{route === 'graph' && <GraphPage …/>}`, included in autosave deps, `pieceJson`, `currentPiece()`, `restore()`, `replaceWith()`; add `'graph'` to the stop-guard exemption (App.tsx:859) so the transport survives navigating to the page.
-- **`src/styles.css`** — `.graph-page` styles in the two-ink design language.
+## UI
+
+6. **`src/canvas/BlockNode.tsx`** — third branch in `BlockView`: `data.graph ? <GraphBox/>`. Same skeleton as `PatternBox`: `.box.graph-box` sized `span·PX_PER_BEAT × BOX_HEIGHT`, head (name "Graph", level/tone sliders, beats label), `.box-in`/`.box-out` ports, `Resize` grip (resizes `beats` = sweep length). Body is an SVG `.graph-strip` (like `figures.tsx`): faint zero-axis + sparse degree rows (stride rule from the page), one `<path>` per curve with the page's `dashOf` stroke pattern in ink, and per-step note `<circle data-at data-span>` marks ON the curve (the same contract PulseLayer's flash-ring `noteAt` uses). Each curve path also carries a compact `data-pts` polyline (svg units) so the glide below needs no math evaluation at draw time.
+
+7. **`src/canvas/PulseLayer.tsx`** — in the runs loop, when the node has a `.graph-strip`, replace the note-jumping `playhead()` placement with a **glide**: interpolate each curve's `data-pts` at x-fraction `t = (beat − run.start)/span`, map svg units → screen via the strip's rect, and draw the halo+core dot there (per curve, the page's playhead vocabulary). Departure after the run continues down the outgoing link as a normal pulse.
+
+8. **Editing** — extract the Graph page's curve card + config atoms into `src/GraphFields.tsx` (`CurveCard`, `GraphConfig`, presets, `NumberField`, `CurveSwatch`, `dashOf` — GraphPage and Inspector both render them). `src/Inspector.tsx`: when `data.graph`, show the graph editor (curves with live expr validation + instrument Select + level/shift, window numbers + Fit y, step/length segmented, degree sliders) via the existing `onChange(id, patch)` → `App.updateBlock` path (which already re-frames on `beats` changes).
+
+9. **Creation** — `src/canvas/CanvasControls.tsx` AddDock gets a **Graph** button (next to Pattern) → `App.addGraphBlock()` = `addBlock({ kind: 'tone', degree: 0, every: 0, graph: DEFAULT_BLOCK_GRAPH, beats: 8 }, viewCenter)`. **`App.placeGraph` rewritten**: "Send to canvas" now stamps ONE graph block (`graph: BlockGraph` from the page spec, `beats: clamp(loopBeats, MIN_SPAN, MAX_SPAN)`, wired to the start block) instead of 128 note blocks; toast says so. The Graph page stays the authoring surface + live transport layer.
+
+10. **`src/styles.css`** — `.graph-box` chrome in the two-ink language (reuse `.box` base, distinct head treatment).
+
+## Tests
+
+- `src/engine/scheduler.test.ts` additions: pulse → graph run emits hits at `start + k·step` with expected degrees (`describePitch` assertions, the established idiom); departure at `beat + span`; per-curve instruments; broken expr = silence not crash; window paging between ticks (edit mid-pass only affects future notes); run velocity × curve level; MAX guards.
+- `src/readPiece.test.ts` (or graph.test): `graph` round-trip + clamps, unknown curve kinds retargeted, machines allowed.
+- `src/GraphPage.test.tsx`: Send now hands the spec to `onSend` (signature change) — assert one graph block data, not note rows.
+- New jsdom test for `GraphBox` render: strip exists, `data-at` marks per step, `data-pts` per curve, resize/ports present.
+- `App.smoke.test.tsx` stays green; full `npm test` + `npm run typecheck`.
 
 ## Verification
 
-1. `npm run typecheck` and `npm test` — all green (284 existing + new fexpr/graph/GraphPage tests).
-2. `npm run dev` + browser-use: open `#/graph`, press Play — pulse sweeps, notes flash on the plot, `sin(x)` audibly climbs and falls; type a bad expression → inline error, playback of future windows unaffected; switch instrument/scale, add a second curve; Send to canvas → blocks appear and the canvas plays them; dark/light theme both legible.
+1. `npm run typecheck`, `npm test` — all green.
+2. Browser (`npm run dev` on 5173, browser-use): add a Graph box from the dock → wire start → Play: pulse enters the box, **dot glides along the curve** across the box, notes fire on the step grid, oscilloscope strip animates, pulse exits and continues down the link. Select the box → Inspector edits expr live (mid-pass edits apply to future notes); resize the box → sweep stretches. Graph page → Send to canvas → one graph box appears (not note blocks), plays identically; undo removes it. Theme toggle legible.
+   Note: the unfocused IAB pane throttles rAF — if the glide looks frozen during automation, use the rAF-shim + forced-frame technique from last session (memory: tek-pending-work).
 
 ## Out of scope (follow-ups)
 
-MCP deck `graph` op; continuous-pitch glide (mono-machine portamento) mode; a graph figure inside pattern boxes.
+Deck ops to create/edit graph boxes; multiple sweeps (polyphony > MAX_RUNS) tuning; graph "figure" variants.

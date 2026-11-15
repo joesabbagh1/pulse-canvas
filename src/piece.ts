@@ -10,7 +10,7 @@ import { DEFAULT_SCALE_ID, ROOT_HZ, scaleById, type Scale, type Tuning } from '.
 import type { Wave } from './engine/wave';
 import type { Bed } from './bed';
 import type { Take } from './takes';
-import { DEFAULT_GRAPH, type GraphSpec } from './engine/graph';
+import { DEFAULT_GRAPH, type BlockGraph, type GraphSpec } from './engine/graph';
 import { readPiece } from './readPiece';
 import { REGION_Z, regionAt } from './regions';
 
@@ -35,9 +35,14 @@ export type BlockData = {
   pattern?: string;
   beats?: number;
   figure?: PatternFigure;
-  /** Pattern blocks: 0 to 1, how loud the pattern is. Unset is full. */
+  /**
+   * Functions of x (see engine/graph.ts). Having one makes this a graph box:
+   * its curves are drawn on the block and a pulse crossing sweeps the window.
+   */
+  graph?: BlockGraph;
+  /** Boxes: 0 to 1, how loud the box is. Unset is full. */
   level?: number;
-  /** Pattern blocks: 0 (dark) to 1 (open). Unset is open. */
+  /** Boxes: 0 (dark) to 1 (open), its own low-pass. Unset is open. */
   tone?: number;
 };
 export type BlockNode = Node<BlockData, 'block'>;
@@ -143,18 +148,25 @@ export function regionNode(id: string, rect: { x: number; y: number; w: number; 
 export function toNodes(piece: Piece): CanvasNode[] {
   return [
     ...piece.regions.map(({ id, x, y, w, h, ...data }) => regionNode(id, { x, y, w, h }, data)),
-    ...piece.blocks.map(({ id, x, y, kind, degree, every, code, key, pattern, beats, figure, level, tone }): BlockNode => {
+    ...piece.blocks.map(({ id, x, y, kind, degree, every, code, key, pattern, beats, figure, level, tone, graph }): BlockNode => {
       const data = {
         kind,
         degree,
         every,
         ...(code ? { code } : {}),
         ...(key ? { key } : {}),
+        ...(graph !== undefined ? { graph, beats: spanOf({ graph, beats }) } : {}),
         ...(pattern !== undefined
           ? {
               pattern,
               beats: spanOf({ pattern, beats }),
               ...(figure && figure !== 'roll' ? { figure } : {}),
+              ...(typeof level === 'number' && level < 1 ? { level } : {}),
+              ...(typeof tone === 'number' && tone < 1 ? { tone } : {}),
+            }
+          : {}),
+        ...(graph !== undefined && pattern === undefined
+          ? {
               ...(typeof level === 'number' && level < 1 ? { level } : {}),
               ...(typeof tone === 'number' && tone < 1 ? { tone } : {}),
             }

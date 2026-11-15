@@ -4,7 +4,7 @@ import { DEFAULT_FX, DEFAULT_MIX, MIN_LEVEL, type Fx, type Mix } from './engine/
 import type { SampleRef } from './engine/samples';
 import { MAX_SPAN, MIN_SPAN, spanOf } from './engine/geometry';
 import { MAX_PATTERN_CHARS } from './engine/pattern';
-import { clampGraph } from './engine/graph';
+import { clampBlockGraph, clampGraph } from './engine/graph';
 import { MAX_DELAY } from './engine/script';
 import type { BlockKind } from './engine/scheduler';
 import { clampPatch, type SynthMachine } from './engine/synth';
@@ -181,11 +181,13 @@ export function readPiece(raw: unknown): Piece {
       const kind = String(v.kind ?? '');
       if (v.kind !== 'start' && !instrumentById(kind) && !machineIds.has(kind)) return null;
       const code = text(v.code, LIMITS.code);
-      // A start block only sends pulses out, so it can't hold a pattern.
+      // A start block only sends pulses out, so it can't hold a pattern or a graph.
       const pattern = typeof v.pattern === 'string' && v.kind !== 'start' ? v.pattern.slice(0, MAX_PATTERN_CHARS).replace(/\s+/g, ' ') : undefined;
+      const graph = v.kind !== 'start' && v.graph !== undefined ? clampBlockGraph(v.graph, (k) => !!instrumentById(k) || machineIds.has(k)) : undefined;
+      const box = pattern !== undefined || graph !== undefined;
       const figure = pattern !== undefined ? readFigure(v.figure) : undefined;
-      const level = pattern !== undefined && typeof v.level === 'number' ? num(v.level, 0, 1, 1) : undefined;
-      const tone = pattern !== undefined && typeof v.tone === 'number' ? num(v.tone, 0, 1, 1) : undefined;
+      const level = box && typeof v.level === 'number' ? num(v.level, 0, 1, 1) : undefined;
+      const tone = box && typeof v.tone === 'number' ? num(v.tone, 0, 1, 1) : undefined;
       return {
         id: v.id as string,
         x: num(v.x, -FAR, FAR, 0),
@@ -195,15 +197,21 @@ export function readPiece(raw: unknown): Piece {
         every: num(v.every, 0, MAX_DELAY, 0),
         ...(code ? { code } : {}),
         ...(readKey(v.key) ? { key: readKey(v.key) } : {}),
+        ...(graph !== undefined
+          ? {
+              graph,
+              beats: num(v.beats, MIN_SPAN, MAX_SPAN, 4),
+            }
+          : {}),
         ...(pattern !== undefined
           ? {
               pattern,
               beats: num(v.beats, MIN_SPAN, MAX_SPAN, spanOf({ pattern })),
               ...(figure ? { figure } : {}),
-              ...(level !== undefined && level < 1 ? { level } : {}),
-              ...(tone !== undefined && tone < 1 ? { tone } : {}),
             }
           : {}),
+        ...(level !== undefined && level < 1 ? { level } : {}),
+        ...(tone !== undefined && tone < 1 ? { tone } : {}),
       };
     }),
   );

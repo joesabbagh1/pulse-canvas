@@ -4,6 +4,7 @@
 
 import { pieceCycle } from '../cycle';
 import { PX_PER_BEAT, formatBeats, linkBeats, linkBetween, spanOf, type SpanPoint } from '../engine/geometry';
+import type { BlockGraph } from '../engine/graph';
 import { instrumentById } from '../engine/instruments';
 import type { SynthPatch } from '../engine/synth';
 import { findLoops } from '../loops';
@@ -41,6 +42,8 @@ export interface DeckBlock {
   beats?: number;
   /** Anything but the default roll. */
   figure?: 'fall' | 'spiral' | 'wheel';
+  /** A graph box's curves and window; carried along, not deck-edited. */
+  graph?: BlockGraph;
   level?: number;
   tone?: number;
   hasCode?: boolean;
@@ -156,7 +159,7 @@ function place(px: number) {
 }
 
 function pointOf(block: DeckBlock): SpanPoint {
-  return { x: block.x, y: block.y, pattern: block.pattern, beats: block.beats };
+  return { x: block.x, y: block.y, pattern: block.pattern, graph: block.graph, beats: block.beats };
 }
 
 export function travelBeats(input: DeckInput, link: DeckLink, blocks: readonly DeckBlock[] = input.blocks): number {
@@ -235,6 +238,11 @@ function blockLine(input: DeckInput, block: DeckBlock) {
     if (block.figure) bits.push(block.figure);
     if (typeof block.level === 'number' && block.level < 1) bits.push(`level ${Math.round(block.level * 100)}%`);
     if (typeof block.tone === 'number' && block.tone < 1) bits.push(`tone ${Math.round(block.tone * 100)}% open`);
+  }
+  if (block.graph !== undefined) {
+    const curves = block.graph.curves.map((curve) => curve.expr.replace(/\s+/g, ' ')).join(', ');
+    const shown = curves.length > 60 ? `${curves.slice(0, 57)}...` : curves || 'empty';
+    bits.push(`graph y = ${shown} over ${beatCount(spanOf(block))}`);
   }
   if (block.code) bits.push(`code "${quote(block.code)}"`);
   else if (block.hasCode) bits.push('has code');

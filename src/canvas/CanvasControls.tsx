@@ -21,6 +21,7 @@ export function AddDock({
   onPencil,
   onAdd,
   onAddPattern,
+  onAddGraph,
   onAddRegion,
   onStamp,
   machines,
@@ -30,6 +31,7 @@ export function AddDock({
   onPencil: () => void;
   onAdd: (kind: BlockKind) => void;
   onAddPattern: () => void;
+  onAddGraph: () => void;
   onAddRegion: () => void;
   onStamp: (stamp: Stamp) => void;
   machines: readonly SynthMachine[];
@@ -106,6 +108,15 @@ export function AddDock({
           >
             <span className="dock-swatch" aria-hidden="true" />
             <span className="dock-text">Pattern</span>
+          </button>
+          <button
+            className="dock-item dock-graph"
+            onClick={onAddGraph}
+            title="Graph: a box that plots functions of x. A pulse crossing it sweeps the window once, sounding a note on every step."
+            aria-label="Add graph"
+          >
+            <span className="dock-swatch" aria-hidden="true" />
+            <span className="dock-text">Graph</span>
           </button>
           <button
             className="dock-item dock-region"

@@ -431,11 +431,13 @@ kbd {
 }
 
 .dock-pattern,
+.dock-graph,
 .dock-region {
   --c: transparent;
 }
 
 .dock-pattern .dock-swatch,
+.dock-graph .dock-swatch,
 .dock-region .dock-swatch {
   width: 13px;
   height: 10px;
@@ -445,6 +447,13 @@ kbd {
 
 .dock-region .dock-swatch {
   border-style: dashed;
+}
+
+.dock-graph .dock-swatch {
+  border-radius: 999px;
+  border: none;
+  border-top: 1.75px solid var(--text);
+  height: 6px;
 }
 
 .dock-divider {
@@ -4295,4 +4304,56 @@ input.canvas-name:hover {
     border-right: none;
     border-bottom: 1px solid var(--line);
   }
+}
+
+/* ---------- graph boxes ---------- */
+
+.graph-box .graph-strip {
+  color: var(--text);
+}
+
+.graph-row {
+  stroke: currentColor;
+  stroke-width: 1;
+  opacity: 0.08;
+}
+
+.graph-axis {
+  stroke: currentColor;
+  stroke-width: 1;
+  opacity: 0.3;
+}
+
+.graph-curve-line {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.75;
+  stroke-linejoin: round;
+  opacity: 0.85;
+}
+
+.graph-mark {
+  opacity: 0.9;
+}
+
+.graph-block-fields .graph-window {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 8px 12px;
+}
+
+.graph-block-fields input[type='number'] {
+  width: 78px;
+  padding: 5px 8px;
+  background: var(--well);
+  border: none;
+  border-radius: var(--r);
+  color: var(--text);
+  font: inherit;
+}
+
+.graph-block-fields input[type='number']:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--ink);
 }

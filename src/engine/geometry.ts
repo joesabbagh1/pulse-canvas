@@ -27,9 +27,14 @@ export const MIN_SPAN = GRID;
 export const MAX_SPAN = 32;
 export const DEFAULT_SPAN = 2;
 
-/** How many beats a pulse takes to cross the block: its length for a pattern block, 0 for a disc. */
-export function spanOf(block: { pattern?: string; beats?: number }): number {
-  if (block.pattern === undefined) return 0;
+/** A block with a length: a pattern box or a graph box. Links meet it at its edges. */
+export function isBox(block: { pattern?: string; graph?: unknown }): boolean {
+  return block.pattern !== undefined || block.graph !== undefined;
+}
+
+/** How many beats a pulse takes to cross the block: its length for a box, 0 for a disc. */
+export function spanOf(block: { pattern?: string; graph?: unknown; beats?: number }): number {
+  if (!isBox(block)) return 0;
   const beats = block.beats;
   return typeof beats === 'number' && Number.isFinite(beats) ? Math.min(MAX_SPAN, Math.max(MIN_SPAN, beats)) : DEFAULT_SPAN;
 }
@@ -44,9 +49,10 @@ export function outPort(at: XY, span: number): XY {
   return span ? { x: at.x + (span * PX_PER_BEAT) / 2, y: at.y } : at;
 }
 
-/** A block's centre plus the pattern fields that decide where its ports sit. */
+/** A block's centre plus the box fields that decide where its ports sit. */
 export interface SpanPoint extends XY {
   pattern?: string;
+  graph?: unknown;
   beats?: number;
 }
 
@@ -60,8 +66,8 @@ export function portGap(span: number): number {
   return span ? PORT_R : BLOCK_R;
 }
 
-/** The pixel size of a pattern box. Null for a disc, which is measured from its own element. */
-export function patternFrame(block: { pattern?: string; beats?: number }): { width: number; height: number } | null {
+/** The pixel size of a box. Null for a disc, which is measured from its own element. */
+export function patternFrame(block: { pattern?: string; graph?: unknown; beats?: number }): { width: number; height: number } | null {
   const span = spanOf(block);
   return span ? { width: span * PX_PER_BEAT, height: BOX_HEIGHT } : null;
 }
