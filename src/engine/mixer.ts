@@ -66,6 +66,22 @@ export const MIN_LEVEL = -40;
 /** The filter cutoff for a tone setting: 200 Hz to 20 kHz. */
 export const toneHz = (tone: number) => 200 * 100 ** tone;
 
+/**
+ * The echo's longest possible delay, in seconds. echoBeats can reach 4 beats
+ * (see readPiece), so at 50 bpm a piece can legally ask for 4.8 s — past the
+ * 1 s a FeedbackDelay defaults to, where a ramp throws and, arriving through a
+ * React edit, took the whole app down. The echo is built with room for it, and
+ * apply still clamps here so no setting can ask for more than exists.
+ */
+export const ECHO_MAX_DELAY = 6;
+export const ECHO_MAX_SECONDS = 5;
+
+export function echoDelaySeconds(echoBeats: number, secondsPerBeat: number): number {
+  const beats = Math.min(4, Math.max(0, echoBeats));
+  const seconds = beats * Math.max(0, secondsPerBeat);
+  return Math.min(ECHO_MAX_SECONDS, seconds);
+}
+
 // Parameter changes glide this long, so dragging a slider while playing
 // doesn't click.
 const GLIDE = 0.04;
@@ -94,7 +110,9 @@ class Bus {
     this.channel = new Tone.Channel().connect(output);
     this.pumpGain = new Tone.Gain(1).connect(this.channel);
     this.reverb = new Tone.Reverb({ decay: 3, wet: 0 }).connect(this.pumpGain);
-    this.echo = new Tone.FeedbackDelay({ delayTime: 0.4, feedback: 0.35, wet: 0 }).connect(this.reverb);
+    // maxDelay has to cover the slowest legal echo (echoBeats 4 at 50 bpm is
+    // 4.8 s); the default 1 s turns a slow piece's echo into a thrown ramp.
+    this.echo = new Tone.FeedbackDelay({ delayTime: 0.4, feedback: 0.35, wet: 0, maxDelay: ECHO_MAX_DELAY }).connect(this.reverb);
     this.drive = new Tone.Distortion({ distortion: 0, wet: 0, oversample: '2x' }).connect(this.echo);
     this.filter = new Tone.Filter({ type: 'lowpass', frequency: toneHz(1), rolloff: -12 }).connect(this.drive);
     this.into = new Tone.Gain(1).connect(this.filter);
@@ -109,7 +127,7 @@ class Bus {
     this.channel.mute = mix.mute;
     if (!this.automated) this.filter.frequency.rampTo(toneHz(fx.tone), GLIDE);
     this.echo.wet.rampTo(fx.echo, GLIDE);
-    this.echo.delayTime.rampTo(fx.echoBeats * secondsPerBeat, GLIDE);
+    this.echo.delayTime.rampTo(echoDelaySeconds(fx.echoBeats, secondsPerBeat), GLIDE);
     this.reverb.wet.rampTo(fx.reverb, GLIDE);
     const drive = Math.min(1, Math.max(0, fx.drive));
     this.drive.distortion = drive * 0.7;
@@ -256,7 +274,14 @@ export class Mixer {
     for (const [id, s] of settings) {
       let bus = this.buses.get(id);
       if (!bus) this.buses.set(id, (bus = new Bus(this.output)));
-      bus.apply(s, secondsPerBeat);
+      try {
+        bus.apply(s, secondsPerBeat);
+      } catch (err) {
+        // apply is reached from edits while playing, which run inside React.
+        // A rejected param (a piece from another browser with odd values) must
+        // cost that region its change, not the whole page.
+        console.warn(`Region ${id} could not apply its mix`, err);
+      }
     }
   }
 
@@ -354,5 +379,7 @@ export class Mixer {
     this.canvas.voices.silence(time);
     this.live.silence(time);
     for (const bus of this.buses.values()) bus.voices.silence(time);
+    // Pattern blocks with their own filter play through lanes, not a bus.
+    for (const lane of this.lanes.values()) lane.voices.silence(time);
   }
 }

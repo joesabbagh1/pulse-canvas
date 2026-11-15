@@ -10,6 +10,7 @@ import { DEFAULT_SCALE_ID, ROOT_HZ, scaleById, type Scale, type Tuning } from '.
 import type { Wave } from './engine/wave';
 import type { Bed } from './bed';
 import type { Take } from './takes';
+import { DEFAULT_GRAPH, type GraphSpec } from './engine/graph';
 import { readPiece } from './readPiece';
 import { REGION_Z, regionAt } from './regions';
 
@@ -99,6 +100,12 @@ export interface Piece extends Settings {
    * existed; readers fill in `[]`.
    */
   machines?: SynthMachine[];
+  /**
+   * The graph page's curves and window (see engine/graph.ts): functions of x
+   * swept by the pulse and read as notes. Absent on pieces saved before the
+   * graph existed; readers fill in the default.
+   */
+  graph?: GraphSpec;
 }
 
 const STORAGE_KEY = 'pulse-canvas:piece:v1';
@@ -180,6 +187,7 @@ export function toPiece(
   takes?: Take[],
   bed: Bed | null = null,
   machines: SynthMachine[] = [],
+  graph: GraphSpec = DEFAULT_GRAPH,
 ): Piece {
   return {
     version: 1,
@@ -209,6 +217,7 @@ export function toPiece(
     takes: takes ?? settings.takes ?? [],
     ...(bed ? { bed } : {}),
     machines,
+    graph,
   };
 }
 

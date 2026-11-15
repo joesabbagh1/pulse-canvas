@@ -1,4 +1,6 @@
 import { PX_PER_BEAT, fitLength, type XY } from './engine/geometry';
+import { MAX_GRAPH_NOTES, degreeAt, xAt, type CurveFn, type GraphSpec } from './engine/graph';
+import type { BlockKind } from './engine/scheduler';
 
 // Builders for the examples. A repeating phrase is still a loop — the pulse
 // has to come back — but it walks a rectangle instead of a ring, with each
@@ -34,7 +36,7 @@ const roundPt = (p: XY): XY => ({ x: Math.round(p.x * 100) / 100, y: Math.round(
  * is long enough to fold; shorter phrases stay nearly square. Each step is
  * that note's length, so the loop's duration is the sum of the notes.
  */
-export function phraseLoop(id: string, x: number, y: number, notes: Note[], kind: PhraseKind = 'tone') {
+export function phraseLoop(id: string, x: number, y: number, notes: Note[], kind: BlockKind = 'tone') {
   const spots = placeOnRect(x, y, notes.map((n) => n.beats));
   const blocks = notes.map((n, i) => {
     const code = [`length ${beats2(n.beats)}`, n.soft ? 'velocity 65%' : '', n.extra ?? ''].filter(Boolean).join('\n');
@@ -167,3 +169,41 @@ export function bassPulse(id: string, x: number, y: number, degrees: [number, nu
 }
 
 export const songStart = { id: 'start', x: -560, y: 0, kind: 'start' as const, degree: 0, every: 0 };
+
+/**
+ * One pass of the graph page, as phrases for `phraseLoop`: for each curve
+ * that reads, notes in step order where a note's `beats` lasts until the next
+ * one (a rest stretches the hop, not the sound) and `extra` carries the
+ * note's own length and loudness. A curve that only ever sounds once gets the
+ * note twice, since a loop needs somewhere to come back to.
+ */
+export function graphPhrases(spec: GraphSpec, curves: readonly CurveFn[]): { kind: BlockKind; notes: Note[] }[] {
+  const rows: { kind: BlockKind; notes: Note[] }[] = [];
+  const steps = Math.round(spec.loopBeats / spec.stepBeats);
+  const sound = spec.lengthBeats ?? spec.stepBeats;
+  for (const { curve, fn } of curves) {
+    const hits: { beat: number; degree: number }[] = [];
+    for (let k = 0; k < steps && hits.length < MAX_GRAPH_NOTES; k++) {
+      const beat = k * spec.stepBeats;
+      const degree = degreeAt(spec, curve, fn(xAt(spec, beat)));
+      if (degree !== null) hits.push({ beat, degree });
+    }
+    if (!hits.length) continue;
+    // The wrap-around: the last note lasts until the first one comes round.
+    const span = (i: number) => (i + 1 < hits.length ? hits[i + 1].beat : spec.loopBeats + hits[0].beat) - hits[i].beat;
+    const single = hits.length === 1;
+    const source = single ? [hits[0], hits[0]] : hits;
+    const notes = source.map((hit, i) => ({
+      degree: hit.degree,
+      beats: single ? spec.loopBeats / 2 : span(i),
+      extra: [
+        `length ${beats2(sound)}`,
+        curve.level < 1 ? `velocity ${Math.round(curve.level * 100)}%` : '',
+      ]
+        .filter(Boolean)
+        .join('\n'),
+    }));
+    rows.push({ kind: curve.kind as BlockKind, notes });
+  }
+  return rows;
+}

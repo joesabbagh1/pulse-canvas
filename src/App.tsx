@@ -22,8 +22,11 @@ import { Engine } from './engine/engine';
 import { setMachines } from './engine/instruments';
 import { DEFAULT_PATCH, machineInstrument, machineShort, PRESETS, type SynthMachine } from './engine/synth';
 import { ExamplesPage } from './ExamplesPage';
+import { GraphPage } from './GraphPage';
 import { InstrumentsPage } from './InstrumentsPage';
 import { SynthPage } from './SynthPage';
+import { DEFAULT_GRAPH, MAX_CURVES, clampGraph, type GraphCurve, type GraphSpec } from './engine/graph';
+import { phraseLoop, type Note } from './melody';
 import { BLOCK_SIZE, DEFAULT_SPAN, PX_PER_BEAT, fitLength, inPort, linkBeats, linkBetween, outPort, patternFrame, spanOf, type SpanPoint, type XY } from './engine/geometry';
 import { NEW_PATTERN } from './engine/pattern';
 import { isMelodic, type BlockKind } from './engine/scheduler';
@@ -79,7 +82,7 @@ import { storeSample } from './engine/samples';
 import { MAX_RECORD_SECONDS } from './engine/recorder';
 import { useHistory } from './history';
 import { datedName, decodeShare, download, encodeShare, pieceFromFile, pieceToFile, sharedCode, shareUrl } from './share';
-import { layoutTake, MAX_TAKES, type Take } from './takes';
+import { layoutTake, MAX_TAKES, TAKE_ORIGIN_X, TAKE_ORIGIN_Y, TAKE_STAGGER_Y, type Take } from './takes';
 import * as Tone from 'tone';
 
 const SAMPLES_STAY = "Samples don't travel in links: whoever opens it hears the synth in their place. Save a file to send them too.";
@@ -132,6 +135,7 @@ function Studio() {
   const [waves, setWaves] = useState<Wave[]>(initial.waves ?? []);
   const [takes, setTakes] = useState<Take[]>(initial.takes ?? []);
   const [machines, setMachinesState] = useState<SynthMachine[]>(initial.machines ?? []);
+  const [graph, setGraph] = useState<GraphSpec>(initial.graph ?? DEFAULT_GRAPH);
   const [bed, setBed] = useState<Bed | null>(initial.bed ?? null);
   const [bedPeaks, setBedPeaks] = useState<Float32Array | null>(null);
   const [bedMissing, setBedMissing] = useState(false);
@@ -214,7 +218,7 @@ function Studio() {
     // Nothing is open; the library is empty until a canvas is made.
     if (canvasId === null) return;
     const timer = setTimeout(() => {
-      const piece = toPiece(nodes, edges, { bpm, snap, scaleId, rootHz, scales: importedScales }, waves, takes, bed, machines);
+      const piece = toPiece(nodes, edges, { bpm, snap, scaleId, rootHz, scales: importedScales }, waves, takes, bed, machines, graph);
       savePiece(piece);
       setCanvases((prev) => {
         const next = prev.map((canvas) => (canvas.id === canvasId ? { ...canvas, piece, updatedAt: Date.now() } : canvas));
@@ -223,12 +227,12 @@ function Studio() {
       });
     }, 400);
     return () => clearTimeout(timer);
-  }, [nodes, edges, waves, takes, bed, bpm, snap, scaleId, rootHz, importedScales, machines, canvasId]);
+  }, [nodes, edges, waves, takes, bed, bpm, snap, scaleId, rootHz, importedScales, machines, graph, canvasId]);
 
   // Everything undoable is in the piece; selection and view are not.
   const pieceJson = useMemo(
-    () => JSON.stringify(toPiece(nodes, edges, { bpm, snap, scaleId, rootHz, scales: importedScales }, waves, takes, bed, machines)),
-    [nodes, edges, waves, takes, bed, bpm, snap, scaleId, rootHz, importedScales, machines],
+    () => JSON.stringify(toPiece(nodes, edges, { bpm, snap, scaleId, rootHz, scales: importedScales }, waves, takes, bed, machines, graph)),
+    [nodes, edges, waves, takes, bed, bpm, snap, scaleId, rootHz, importedScales, machines, graph],
   );
 
   // Puts an undo step back, keeping what's selected and what React Flow has
@@ -254,6 +258,7 @@ function Studio() {
     setWaves(piece.waves ?? []);
     setTakes(piece.takes ?? []);
     setMachinesState(piece.machines ?? []);
+    setGraph(piece.graph ?? DEFAULT_GRAPH);
     setBed(piece.bed ?? null);
     setSelectedWaveId((id) => ((piece.waves ?? []).some((w) => w.id === id) ? id : null));
   };
@@ -678,6 +683,7 @@ function Studio() {
     setWaves(piece.waves ?? []);
     setTakes(piece.takes ?? []);
     setMachinesState(piece.machines ?? []);
+    setGraph(piece.graph ?? DEFAULT_GRAPH);
     setBed(piece.bed ?? null);
     setSelectedWaveId(null);
     setBpm(piece.bpm);
@@ -688,7 +694,7 @@ function Studio() {
     setTimeout(() => void fitView({ padding: 0.25, duration: 300 }), 50);
   };
 
-  const currentPiece = () => toPiece(nodes, edges, { bpm, snap, scaleId, rootHz, scales: importedScales }, waves, takes, bed, machines);
+  const currentPiece = () => toPiece(nodes, edges, { bpm, snap, scaleId, rootHz, scales: importedScales }, waves, takes, bed, machines, graph);
 
   // A shared link opens its piece. A first visit just shows it; otherwise ask,
   // since it replaces the work saved in this browser. The fragment is cleared
@@ -853,6 +859,15 @@ function Studio() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [route, routeCanvasId, canvasId, canvases]);
 
+  // Another page can't hear the piece, so leaving the canvas stops it rather
+  // than play to an empty room. Waves is the same canvas, and the graph rides
+  // the transport, so playing carries across both of those tabs.
+  useEffect(() => {
+    if (route === 'canvas' || route === 'waves' || route === 'graph' || !engine.playing) return;
+    engine.stop();
+    setPlaying(false);
+  }, [route, engine]);
+
   const makeCanvas = (name?: string): string | null => {
     if (canvases.length >= MAX_CANVASES) {
       toast('info', `${MAX_CANVASES} canvases is the limit`, 'Delete one before adding another.');
@@ -1003,10 +1018,39 @@ function Studio() {
     (id: string) => {
       setMachinesState((current) => current.filter((machine) => machine.id !== id));
       setNodes((ns) => ns.map((n) => (isBlock(n) && n.data.kind === id ? { ...n, data: { ...n.data, kind: 'tone' as BlockKind } } : n)));
+      setGraph((current) => clampGraph({ ...current, curves: current.curves.map((c) => (c.kind === id ? { ...c, kind: 'tone' } : c)) }));
       toast('info', 'Machine deleted', 'Blocks that played it now play the plain tone.');
     },
     [setNodes],
   );
+
+  // The graph page's curves, as part of the piece. Every edit runs through the
+  // same clamp a shared piece does, so the page can't hold an unusable graph.
+  const editGraph = useCallback((patch: Partial<GraphSpec>) => {
+    setGraph((current) => clampGraph({ ...current, ...patch }));
+  }, []);
+
+  const editCurve = useCallback((id: string, patch: Partial<GraphCurve>) => {
+    setGraph((current) => clampGraph({ ...current, curves: current.curves.map((c) => (c.id === id ? { ...c, ...patch } : c)) }));
+  }, []);
+
+  const addCurve = useCallback(() => {
+    setGraph((current) =>
+      current.curves.length >= MAX_CURVES
+        ? current
+        : clampGraph({
+            ...current,
+            curves: [
+              ...current.curves,
+              { id: newId('graph'), expr: 'cos(x)', kind: current.curves[current.curves.length - 1]?.kind ?? 'tone', level: 0.9, shift: 0 },
+            ],
+          }),
+    );
+  }, []);
+
+  const removeCurve = useCallback((id: string) => {
+    setGraph((current) => clampGraph({ ...current, curves: current.curves.filter((c) => c.id !== id) }));
+  }, []);
 
   // A row of blocks, one per note, linked in time order. The piece already on
   // the canvas stays; the row steps down if (80, 80) is already a block.
@@ -1031,6 +1075,56 @@ function Studio() {
       setEdges((current) => [...current.map((edge) => (edge.selected ? { ...edge, selected: false } : edge)), ...links]);
       const count = laid.notes.length;
       toast('success', `Placed ${take.name}`, `${count} ${count === 1 ? 'note' : 'notes'} on the canvas.`);
+      go('canvas', canvasId);
+      setTimeout(() => void fitView({ padding: 0.25, duration: 300 }), 50);
+    },
+    [nodes, setNodes, setEdges, go, canvasId, fitView],
+  );
+
+  // One pass of each graph curve, folded into loops of blocks the pulse walks
+  // round, wired to a start block so the canvas plays them straight away.
+  const placeGraph = useCallback(
+    (rows: { kind: BlockKind; notes: Note[] }[]) => {
+      if (!rows.length) return;
+      const occupied = nodes.filter(isBlock).map((node) => node.position);
+      const addedNodes: BlockNode[] = [];
+      const addedEdges: LinkEdge[] = [];
+      const firsts: string[] = [];
+      let y = TAKE_ORIGIN_Y;
+      let guard = 0;
+      for (const row of rows) {
+        while (guard++ < 160 && occupied.some((p) => Math.hypot(p.x - TAKE_ORIGIN_X, p.y - y) < BLOCK_SIZE)) y += TAKE_STAGGER_Y;
+        const loop = phraseLoop(newId('graph'), TAKE_ORIGIN_X, y, row.notes, row.kind);
+        for (const block of loop.blocks) {
+          addedNodes.push({
+            id: block.id,
+            type: 'block',
+            position: { x: block.x, y: block.y },
+            data: { kind: block.kind, degree: block.degree, every: block.every, code: block.code },
+          });
+          occupied.push({ x: block.x, y: block.y });
+        }
+        for (const link of loop.links) {
+          addedEdges.push({
+            id: link.id,
+            type: 'link',
+            source: link.from,
+            target: link.to,
+            ...(link.bends?.length ? { data: { bends: link.bends } } : {}),
+          });
+        }
+        firsts.push(loop.first);
+      }
+      let start = nodes.find((n): n is BlockNode => isBlock(n) && n.data.kind === 'start');
+      if (!start) {
+        start = { id: newId('s'), type: 'block', position: { x: TAKE_ORIGIN_X - PX_PER_BEAT * 2, y: TAKE_ORIGIN_Y }, data: { kind: 'start', degree: 0, every: 0 } };
+        addedNodes.push(start);
+      }
+      for (const first of firsts) addedEdges.push({ id: newId('l'), type: 'link', source: start.id, target: first });
+      setNodes((current) => [...current.map((n) => (n.selected ? { ...n, selected: false } : n)), ...addedNodes]);
+      setEdges((current) => [...current.map((e) => (e.selected ? { ...e, selected: false } : e)), ...addedEdges]);
+      const count = addedNodes.filter((n) => n.data.kind !== 'start').length;
+      toast('success', 'Graph placed on the canvas', `${count} blocks, wired to the start block.`);
       go('canvas', canvasId);
       setTimeout(() => void fitView({ padding: 0.25, duration: 300 }), 50);
     },
@@ -1266,13 +1360,13 @@ function Studio() {
         }
       }
       if (Tone.getContext().state !== 'running') return 'Press Play in the browser once so it can make sound. After that, the deck can start and stop on its own.';
-      const seconds = (60 / bpm) * 1000;
-      for (const note of notes) {
-        window.setTimeout(() => {
-          const id = engine.attack({ id: 'instrument', x: 0, y: 0, kind: instrument as BlockKind, degree: note.degree, every: 0, scale, rootHz }, note.velocity);
-          window.setTimeout(() => engine.release(id), note.beats * seconds);
-        }, note.at * seconds);
-      }
+      // Attacks and releases are scheduled on the audio clock: a background
+      // tab throttles setTimeout hard, which used to hold a note until the
+      // throttled release finally fired.
+      engine.phrase(
+        { id: 'instrument', x: 0, y: 0, kind: instrument as BlockKind, degree: 0, every: 0, scale, rootHz },
+        notes,
+      );
       return null;
     },
     recordStart: async () => {
@@ -1533,6 +1627,23 @@ function Studio() {
               onRelease={releaseInstrument}
               onSaveTake={saveTake}
               onPlace={placeTake}
+            />
+          )}
+          {route === 'graph' && (
+            <GraphPage
+              bpm={bpm}
+              playing={playing}
+              scale={scale}
+              rootHz={rootHz}
+              machines={machines}
+              graph={graph}
+              engine={engine}
+              onGraph={editGraph}
+              onCurve={editCurve}
+              onAddCurve={addCurve}
+              onRemoveCurve={removeCurve}
+              onPlay={() => void togglePlay()}
+              onSend={placeGraph}
             />
           )}
         </div>

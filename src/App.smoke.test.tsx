@@ -675,6 +675,26 @@ describe('App', () => {
       history.replaceState(null, '', '/');
       act(() => root.unmount());
     });
+
+    it('leaving the canvas stops a playing piece, and waves keeps it', async () => {
+      const stop = vi.spyOn(Engine.prototype, 'stop').mockImplementation(() => {});
+      vi.spyOn(Engine.prototype, 'playing', 'get').mockReturnValue(true);
+      const { host, root } = await mount();
+      const jump = async (href: string) => {
+        await act(async () => void host.querySelector<HTMLAnchorElement>(`a.tab[href="${href}"]`)!.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true })));
+        // jsdom follows the fragment asynchronously.
+        await act(() => new Promise((r) => setTimeout(r, 10)));
+      };
+
+      // Waves is the same canvas: the piece keeps playing across the tab.
+      await jump('#/waves');
+      expect(stop).not.toHaveBeenCalled();
+
+      // The canvases list (or any other page) parks the canvas, so the piece stops.
+      await jump('#/canvases');
+      expect(stop).toHaveBeenCalledTimes(1);
+      act(() => root.unmount());
+    });
   });
 
   describe('repeats, performance keys and groove', () => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { acidSlides, acidTone, kickBodyHz, kickStartHz } from './machine';
-import { pumpGain } from './mixer';
+import { echoDelaySeconds, ECHO_MAX_SECONDS, pumpGain } from './mixer';
 
 describe('club drums and acid', () => {
   it('drops a mid-range note down to a kick body, and starts the pitch above it', () => {
@@ -27,5 +27,15 @@ describe('club drums and acid', () => {
     expect(pumpGain(1)).toBeCloseTo(0.08, 5);
     expect(pumpGain(0.5)).toBeGreaterThan(pumpGain(1));
     expect(pumpGain(0.5)).toBeLessThan(1);
+  });
+
+  it('keeps a slow piece long echo inside the delay range', () => {
+    // Rast at Dusk asked for 1.5 beats at 66 bpm: 1.364 s, past the 1 s a
+    // FeedbackDelay defaults to. The ramp threw and took the app down.
+    expect(echoDelaySeconds(1.5, 60 / 66)).toBeCloseTo(1.3636, 3);
+    expect(echoDelaySeconds(4, 60 / 50)).toBeCloseTo(4.8, 5);
+    expect(echoDelaySeconds(1 / 16, 60 / 200)).toBeGreaterThan(0);
+    expect(echoDelaySeconds(-2, 0.5)).toBe(0);
+    expect(echoDelaySeconds(9, 2)).toBe(ECHO_MAX_SECONDS);
   });
 });

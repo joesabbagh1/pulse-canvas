@@ -1,2 +1,5 @@
 node_modules
 dist
+
+# the deck server announces itself here while it runs
+public/deck.json

@@ -9,6 +9,7 @@ const APP_TABS: { route: Route; label: string }[] = [
   { route: 'guide', label: 'Guide' },
   { route: 'instruments', label: 'Instruments' },
   { route: 'synth', label: 'Synth' },
+  { route: 'graph', label: 'Graph' },
 ];
 
 const CANVAS_TABS: { route: Route; label: string }[] = [
@@ -70,6 +71,9 @@ interface Props {
 export function TopBar(props: Props) {
   const { route, canvasId, canvasName, playing, recording, recordedSeconds, bpm, snap, canUndo, canRedo, fileMenu } = props;
   const inside = insideCanvas(route);
+  // The graph page rides the piece's transport, so its play, tempo and
+  // recording belong there too.
+  const hears = inside || route === 'graph';
   const [theme, setTheme] = useTheme();
   const tabs = useRef<HTMLElement>(null);
   useEffect(() => {
@@ -104,7 +108,7 @@ export function TopBar(props: Props) {
         </nav>
       </div>
 
-      {inside && (
+      {hears && (
       <div className="app-bar-group transport" role="group" aria-label="Transport">
         <button className={`play${playing ? ' is-on' : ''}`} onClick={props.onTogglePlay} title={`${playing ? 'Stop' : 'Play'} (Space)`}>
           <Icon name={playing ? 'stop' : 'play'} solid />

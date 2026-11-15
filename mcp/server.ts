@@ -8,6 +8,7 @@
 // start and stop. Logs go to stderr; stdout is the MCP transport.
 
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import * as z from 'zod';
@@ -44,6 +45,24 @@ function readBody(req: IncomingMessage) {
     req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
     req.on('error', reject);
   });
+}
+
+// The page never touches the deck port unless this file says a deck is on it:
+// the browser logs every refused connection, so a page polling for a deck
+// that is usually absent fills the console. The dev server hands out this
+// file same-origin, which fails silently in every direction. `at` is
+// refreshed while the deck lives, so a crashed process's flag goes stale
+// instead of pointing at a dead port.
+const FLAG_FILE = new URL('../public/deck.json', import.meta.url);
+let announced = false;
+
+function announceDeck(port: number | null) {
+  try {
+    mkdirSync(new URL('./', FLAG_FILE), { recursive: true });
+    writeFileSync(FLAG_FILE, JSON.stringify({ port, ...(port === null ? {} : { at: Date.now() }) }));
+  } catch {
+    // The page falls back to not finding a deck; nothing to do.
+  }
 }
 
 function listen() {
@@ -94,7 +113,28 @@ function listen() {
     process.exit(1);
   });
   http.listen(DECK_PORT, '127.0.0.1');
+  http.on('listening', () => {
+    announced = true;
+    announceDeck(DECK_PORT);
+    const refresh = setInterval(() => announceDeck(DECK_PORT), 5_000);
+    refresh.unref();
+  });
   return http;
+}
+
+// Only the process that announced itself may clear the flag: a second deck
+// that lost the port to this one exits through here too.
+function retractDeck() {
+  if (!announced) return;
+  announced = false;
+  announceDeck(null);
+}
+process.on('exit', retractDeck);
+for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+  process.on(signal, () => {
+    retractDeck();
+    process.exit(0);
+  });
 }
 
 async function call(command: unknown) {

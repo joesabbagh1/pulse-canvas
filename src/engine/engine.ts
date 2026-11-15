@@ -10,6 +10,7 @@ import { WavRecorder } from './recorder';
 import { loadSampleBytes } from './samples';
 import { Ear } from './ear';
 import { spanOf, type XY } from './geometry';
+import { guardTimers } from './timers';
 import { compilePattern } from './pattern';
 import { degreeToHz } from './tuning';
 import { Scheduler, patternHit, type BlockKind, type GraphBlock, type GraphLink, type NoteShape } from './scheduler';
@@ -157,6 +158,47 @@ export class Engine {
     this.holds.release(id, this.audioNow());
   }
 
+  /**
+   * A phrase played by the deck: every note's attack and release are scheduled
+   * on the audio clock, so a throttled background tab cannot leave a held note
+   * stuck on the way a setTimeout release can. `block` carries the instrument,
+   * scale and root; `notes` are beats from now.
+   */
+  phrase(block: GraphBlock, notes: { degree: number; beats: number; at: number; velocity: number }[]) {
+    void this.ensureAudio()
+      .then((mixer) => {
+        const start = this.audioNow() + 0.02;
+        const secondsPerBeat = this.clock.secondsPerBeat;
+        for (const note of notes) {
+          const at = start + Math.max(0, note.at) * secondsPerBeat;
+          const gate = mixer.attack({ ...block, degree: note.degree }, at, secondsPerBeat, note.velocity);
+          gate.release(at + Math.max(0.05, note.beats) * secondsPerBeat);
+        }
+      })
+      .catch((err) => console.warn('Phrase failed to play', err));
+  }
+
+  /**
+   * A phrase anchored to a beat on the clock, so windows of notes can be
+   * scheduled gaplessly ahead of time (the graph page works this way, a window
+   * at a time). Notes whose beat has already passed play now rather than
+   * piling up late.
+   */
+  phraseAt(startBeat: number, block: GraphBlock, notes: { degree: number; beats: number; at: number; velocity: number }[]) {
+    if (!notes.length) return;
+    void this.ensureAudio()
+      .then((mixer) => {
+        const secondsPerBeat = this.clock.secondsPerBeat;
+        const floor = this.audioNow() + 0.01;
+        for (const note of notes) {
+          const at = Math.max(floor, this.clock.timeAt(startBeat + Math.max(0, note.at)));
+          const gate = mixer.attack({ ...block, degree: note.degree }, at, secondsPerBeat, note.velocity);
+          gate.release(at + Math.max(0.05, note.beats) * secondsPerBeat);
+        }
+      })
+      .catch((err) => console.warn('Phrase failed to play', err));
+  }
+
   setGraph(blocks: GraphBlock[], links: GraphLink[]) {
     this.scheduler.setGraph(blocks, links, this.currentBeat());
     const patterns = new Set(blocks.filter((block) => block.pattern !== undefined).map((block) => block.id));
@@ -291,6 +333,7 @@ export class Engine {
 
   private async ensureAudio() {
     await Tone.start();
+    guardTimers(Tone.getContext());
     if (!this.mixer) {
       this.mixer = new Mixer(this.samples);
       this.mixer.sync(this.buses, this.clock.secondsPerBeat);

@@ -4,6 +4,7 @@ import { DEFAULT_FX, DEFAULT_MIX, MIN_LEVEL, type Fx, type Mix } from './engine/
 import type { SampleRef } from './engine/samples';
 import { MAX_SPAN, MIN_SPAN, spanOf } from './engine/geometry';
 import { MAX_PATTERN_CHARS } from './engine/pattern';
+import { clampGraph } from './engine/graph';
 import { MAX_DELAY } from './engine/script';
 import type { BlockKind } from './engine/scheduler';
 import { clampPatch, type SynthMachine } from './engine/synth';
@@ -257,6 +258,7 @@ export function readPiece(raw: unknown): Piece {
 
   const takes = unique(list(raw.takes, MAX_TAKES).map((v) => readTake(v, machineIds, machineNames)));
   const bed = readBed(raw.bed);
+  const graph = clampGraph(raw.graph, (kind) => !!instrumentById(kind) || machineIds.has(kind));
 
   return {
     version: 1,
@@ -271,6 +273,7 @@ export function readPiece(raw: unknown): Piece {
     regions,
     waves,
     takes,
+    graph,
     ...(bed ? { bed } : {}),
   };
 }
