@@ -1,49 +1,42 @@
-# Graph boxes on the canvas — the plot as its own container, pulse gliding along the curve
+# Bendable functions — drag the curve, the math and the music follow live
 
 ## Context
 
-The Graph page's "Send to canvas" currently bakes the pass into ~128 circular note blocks. The user wants the graph itself to live on the canvas: its own UI container that shows the same plot as the Graph page — axes, function curves, note marks — with the pulse gliding along the function line while it plays. The codebase already has the exact template: **pattern blocks**. A block becomes a box via a data field (`pattern`); a pulse arriving starts a `Run` that emits notes across the box's span and departs at its end. We mirror that with a `graph` field.
+The graph surfaces are typed-math-only right now. The user wants to grab a curve and bend it with the mouse, with the function — and the sound — updating in real time. The honest way to do that in tek: **the bend is the expression**. We add one new math primitive, `curve(x, a, b, y0, …, yn)` — a smooth interpolation through knot values across `[a, b]` — and bending is nothing more than dragging knots and rewriting the expression text through the existing edit pipelines. The expression field, live re-compile mid-play, autosave, undo, and share links all keep working because a bent curve is just math text like `sin(x)` is.
 
-**Model in one line**: a graph box is `span` beats wide (distance-is-time); one pass = one sweep of the math window `[x0, x1]`; on each step grid point every curve's y becomes a note on that curve's own instrument; the pulse dot rides each curve at the sweep fraction.
+**One design choice to be clear about**: bending converts the curve's expression into knot form — drag `sin(x)` and the field becomes `curve(x, 0, 16, .03, .41, …)` matching exactly what you drew. Typing/presets still work both ways; the text always mirrors reality.
 
-## Engine (pure, testable)
+## Engine (pure, tested)
 
-1. **`src/engine/graph.ts`** — `export type BlockGraph = Omit<GraphSpec, 'loopBeats' | 'run'>` (curves/window/step/length/degrees live per block; the box's `beats` IS the sweep length). `DEFAULT_BLOCK_GRAPH`, `clampBlockGraph(v, kindOk)` (same clamps as `clampGraph`), and `blockGraphNotes(spec, curves, span, fromBeat, toBeat)` = `graphNotes({ ...spec, loopBeats: span }, ...)` — zero new sampling math.
+1. **`src/engine/fexpr.ts`** — variadic function support (today `FnDef` is arity 1|2): `curve(x, a, b, y0…yn)` takes the x, both window ends, and 2–14 values; cosine-smoothed interpolation between knots (`t' = (1−cos(πt))/2`), clamped flat outside `[a, b]`. Arg-count/limit errors in the compiler's friendly voice. `EXPR_WORDS` picks it up automatically.
 
-2. **`src/engine/geometry.ts`** — box-ness becomes `isBox(block) = pattern !== undefined || graph !== undefined`; `spanOf`/`patternFrame` accept `{ pattern?, beats?, graph? }` so graph boxes size to `beats × BOX_HEIGHT` and every existing caller (link geometry, loops stat, deck `pointOf`) works unchanged. Box length caps at `MAX_SPAN` (32 beats).
+2. **`src/engine/graph.ts`** — bend helpers, pure:
+   - `BEND_KNOTS = 12`; `knotXs(spec)` — evenly spaced x across the window.
+   - `knotsOf(fn, spec): number[]` — sample any expression at the knot xs (so bending starts from the curve's current shape, whatever it is).
+   - `dragKnot(ys, index, y): number[]` — sets the grabbed knot and blends neighbors with a gaussian falloff (σ ≈ 1.2 knots), so it feels like bending, not pushing a point.
+   - `bendExpr(x0, x1, ys): string` — builds `curve(x, 0, 16, .32, −.11, …)` with compact numbers (strip leading/trailing zeros); guaranteed ≤ `MAX_EXPR_CHARS` at 12 knots.
 
-3. **`src/engine/scheduler.ts`** — `GraphBlock` gains `graph?: BlockGraph`. Where patterns are compiled on `setGraph`, also store per-block compiled `CurveFn[]` (bad curves drop out silently until they read). `release()` needs no change (`spanOf` now returns the box span → Run + departure at `beat + span` for free). In `playRuns()`, a run on a graph block sources notes from `blockGraphNotes(spec, curves, span, run.cursor − run.start, until − run.start)` and assembles each hit like `patternHit` does: per-note `kind = curve.kind`, `degree = block.degree + note.degree` (block degree = transpose, block `code` transpose applies via run shift), `length = note.beats` for held voices, `velocity = run.velocity × curve.level`, `at = { x: inPort.x + (note.beat/span)·width, y: block.y }` so flash rings land on the box. `MAX_RUN_HITS` guards as usual.
+## UI — bend on both surfaces
 
-4. **`src/engine/engine.ts`** — ear-ping and `setGraph`'s pattern set (ear + mixer private lanes) key on `isBox` instead of `pattern !== undefined`, so graph boxes get the oscilloscope strip and `tone` lanes. `audition()` gains a graph branch: stopped-state preview plays one full pass via `blockGraphNotes` + `mixer.play`.
+3. **`src/GraphPage.tsx` (the plot)** — pointer interactions on the plot canvas:
+   - Pointer-down hit-tests every compiled curve (evaluate `fn` at the pointer's x; within ~10px vertically) → picks the nearest curve + nearest knot; the selected curve wins ties.
+   - While dragging: knot y ← pointer y (math units), `dragKnot` falloff, `onCurve({ expr: bendExpr(...) })` on every move — the existing pipeline re-renders, re-schedules windows, autosaves; mid-sweep edits apply to future windows only, exactly like typing.
+   - The rAF draw adds small knot handles (hollow circles) on the selected curve, filled on the one being dragged, so the affordance is visible; cursor changes to `grab`/`grabbing` over a curve.
+   - Rail hint gains: "Drag a curve to bend it — the function follows."
 
-5. **Persistence** — `src/piece.ts`: `BlockData.graph?: BlockGraph` (toGraph spreads data → scheduler gets it; toNodes sizes via `patternFrame`). `src/readPiece.ts`: block reader keeps `graph: clampBlockGraph(v.graph, kindOk)` (machines included), keeps `beats`/`level`/`tone` for graph blocks, `figure` stays pattern-only. Deck: `DeckBlock` + `blockFields` pass `graph` through so a deck edit of another field can't strip it (full deck editing out of scope).
-
-## UI
-
-6. **`src/canvas/BlockNode.tsx`** — third branch in `BlockView`: `data.graph ? <GraphBox/>`. Same skeleton as `PatternBox`: `.box.graph-box` sized `span·PX_PER_BEAT × BOX_HEIGHT`, head (name "Graph", level/tone sliders, beats label), `.box-in`/`.box-out` ports, `Resize` grip (resizes `beats` = sweep length). Body is an SVG `.graph-strip` (like `figures.tsx`): faint zero-axis + sparse degree rows (stride rule from the page), one `<path>` per curve with the page's `dashOf` stroke pattern in ink, and per-step note `<circle data-at data-span>` marks ON the curve (the same contract PulseLayer's flash-ring `noteAt` uses). Each curve path also carries a compact `data-pts` polyline (svg units) so the glide below needs no math evaluation at draw time.
-
-7. **`src/canvas/PulseLayer.tsx`** — in the runs loop, when the node has a `.graph-strip`, replace the note-jumping `playhead()` placement with a **glide**: interpolate each curve's `data-pts` at x-fraction `t = (beat − run.start)/span`, map svg units → screen via the strip's rect, and draw the halo+core dot there (per curve, the page's playhead vocabulary). Departure after the run continues down the outgoing link as a normal pulse.
-
-8. **Editing** — extract the Graph page's curve card + config atoms into `src/GraphFields.tsx` (`CurveCard`, `GraphConfig`, presets, `NumberField`, `CurveSwatch`, `dashOf` — GraphPage and Inspector both render them). `src/Inspector.tsx`: when `data.graph`, show the graph editor (curves with live expr validation + instrument Select + level/shift, window numbers + Fit y, step/length segmented, degree sliders) via the existing `onChange(id, patch)` → `App.updateBlock` path (which already re-frames on `beats` changes).
-
-9. **Creation** — `src/canvas/CanvasControls.tsx` AddDock gets a **Graph** button (next to Pattern) → `App.addGraphBlock()` = `addBlock({ kind: 'tone', degree: 0, every: 0, graph: DEFAULT_BLOCK_GRAPH, beats: 8 }, viewCenter)`. **`App.placeGraph` rewritten**: "Send to canvas" now stamps ONE graph block (`graph: BlockGraph` from the page spec, `beats: clamp(loopBeats, MIN_SPAN, MAX_SPAN)`, wired to the start block) instead of 128 note blocks; toast says so. The Graph page stays the authoring surface + live transport layer.
-
-10. **`src/styles.css`** — `.graph-box` chrome in the two-ink language (reuse `.box` base, distinct head treatment).
+4. **`src/canvas/BlockNode.tsx` (the GraphBox strip)** — same bend on the canvas: pointer-down on the strip (`nodrag`, the `Resize` grip's pointer-capture pattern) near a curve → drag → `updateNodeData(id, { graph: { …, curves: […expr] } })` → `App.updateBlock` → `engine.setGraph` recompiles mid-run, so a playing box bends audibly within a window. No persistent handles on the box (it's small); a hover cursor + the curve-following drag is enough. `spanOf`/layout untouched — the box doesn't resize.
 
 ## Tests
 
-- `src/engine/scheduler.test.ts` additions: pulse → graph run emits hits at `start + k·step` with expected degrees (`describePitch` assertions, the established idiom); departure at `beat + span`; per-curve instruments; broken expr = silence not crash; window paging between ticks (edit mid-pass only affects future notes); run velocity × curve level; MAX guards.
-- `src/readPiece.test.ts` (or graph.test): `graph` round-trip + clamps, unknown curve kinds retargeted, machines allowed.
-- `src/GraphPage.test.tsx`: Send now hands the spec to `onSend` (signature change) — assert one graph block data, not note rows.
-- New jsdom test for `GraphBox` render: strip exists, `data-at` marks per step, `data-pts` per curve, resize/ports present.
-- `App.smoke.test.tsx` stays green; full `npm test` + `npm run typecheck`.
+- `fexpr.test.ts`: `curve()` interpolation at knots and midpoints, clamping outside `[a, b]`, odd arg counts / too few values / too many knots errors, survives the 200-char cap.
+- `graph.test.ts` (or a bend block): `knotsOf` samples faithfully, `dragKnot` moves the grabbed knot fully and neighbors partially, `bendExpr` round-trips through `compileExpr` to the same shape (knots ± 0.01) and stays ≤ 200 chars for typical windows.
+- Existing suites stay green (the bent curve is ordinary spec text — scheduler/box/page tests untouched).
 
 ## Verification
 
 1. `npm run typecheck`, `npm test` — all green.
-2. Browser (`npm run dev` on 5173, browser-use): add a Graph box from the dock → wire start → Play: pulse enters the box, **dot glides along the curve** across the box, notes fire on the step grid, oscilloscope strip animates, pulse exits and continues down the link. Select the box → Inspector edits expr live (mid-pass edits apply to future notes); resize the box → sweep stretches. Graph page → Send to canvas → one graph box appears (not note blocks), plays identically; undo removes it. Theme toggle legible.
-   Note: the unfocused IAB pane throttles rAF — if the glide looks frozen during automation, use the rAF-shim + forced-frame technique from last session (memory: tek-pending-work).
+2. Browser (5173, browser-use): Graph page — press near `sin(x)`'s crest and drag down; the expression field rewrites itself live into `curve(…)`, the plot follows the pointer, and while running, upcoming notes retune (oscillator/pitch shift audible in the note stream; no console errors). Canvas — select a graph box, drag its curve mid-play, sweep retunes without the box moving; ⌘Z steps back through the drag history; reload keeps the bent curve (autosave), undo restores.
 
 ## Out of scope (follow-ups)
 
-Deck ops to create/edit graph boxes; multiple sweeps (polyphony > MAX_RUNS) tuning; graph "figure" variants.
+Bend-preserving blends (keeping `sin(x) + curve(…)` composites editable); knot handles on the canvas box; multi-touch bends.

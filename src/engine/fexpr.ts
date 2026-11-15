@@ -7,6 +7,8 @@
 //   2x, 3sin(x), x(x+1)           multiplication can be implied
 //   sin cos tan asin acos atan atan2 abs sqrt floor ceil round exp ln log
 //   log2 sign min max pow mod      (ln is natural, log is base 10)
+//   curve(x, a, b, y0…yn)         knot values smoothly spread over [a, b],
+//                                 flat past either end — a shape to type.
 
 export const MAX_EXPR_CHARS = 200;
 const MAX_DEPTH = 32;
@@ -14,7 +16,7 @@ const MAX_DEPTH = 32;
 export type ExprFn = (x: number) => number;
 export type CompiledExpr = { fn: ExprFn; error: null } | { fn: null; error: string };
 
-type Node =
+export type Node =
   | { t: 'num'; v: number }
   | { t: 'var' }
   | { t: 'const'; v: number }
@@ -26,12 +28,25 @@ type Node =
 const CONSTANTS: Record<string, number> = { pi: Math.PI, e: Math.E, tau: Math.PI * 2 };
 
 interface FnDef {
-  arity: 1 | 2;
-  call: (a: number, b: number) => number;
+  /** How many comma-separated values the call accepts, inclusive. */
+  minArgs: number;
+  maxArgs: number;
+  call: (...xs: number[]) => number;
 }
 
-const one = (f: (a: number) => number): FnDef => ({ arity: 1, call: (a) => f(a) });
-const two = (f: (a: number, b: number) => number): FnDef => ({ arity: 2, call: f });
+const one = (f: (a: number) => number): FnDef => ({ minArgs: 1, maxArgs: 1, call: (a) => f(a) });
+const two = (f: (a: number, b: number) => number): FnDef => ({ minArgs: 2, maxArgs: 2, call: (a, b) => f(a, b) });
+
+/** A bend, as math: knot values spread over [a, b], cosine-smoothed between them. */
+function curveAt(x: number, a: number, b: number, ys: number[]): number {
+  if (b <= a || ys.length < 2) return ys[0] ?? NaN;
+  // Flat past either end, so a bend stays inside its window.
+  const across = Math.min(1, Math.max(0, (x - a) / (b - a)));
+  const pos = across * (ys.length - 1);
+  const i = Math.min(ys.length - 2, Math.floor(pos));
+  const u = (1 - Math.cos(Math.PI * (pos - i))) / 2;
+  return ys[i] + (ys[i + 1] - ys[i]) * u;
+}
 
 const FUNCTIONS: Record<string, FnDef> = {
   sin: one(Math.sin),
@@ -55,9 +70,12 @@ const FUNCTIONS: Record<string, FnDef> = {
   max: two(Math.max),
   pow: two(Math.pow),
   mod: two((a, b) => ((a % b) + b) % b),
+  // The one variadic: x, the window's ends, and two to fourteen knot values.
+  curve: { minArgs: 5, maxArgs: 17, call: (x, a, b, ...ys) => curveAt(x, a, b, ys) },
 };
 
-type Tok = { k: 'num'; v: number } | { k: 'name'; v: string } | { k: 'op'; v: string };
+/** A token with the span it came from, so terms can be cut as source text. */
+type Tok = { k: 'num'; v: number; i: number; j: number } | { k: 'name'; v: string; i: number; j: number } | { k: 'op'; v: string; i: number; j: number };
 
 function lex(src: string): Tok[] {
   const toks: Tok[] = [];
@@ -78,19 +96,19 @@ function lex(src: string): Tok[] {
       if (exp) j += exp[0].length;
       const v = Number(src.slice(i, j));
       if (!Number.isFinite(v)) throw new Error(`"${src.slice(i, j)}" isn't a number I can read`);
-      toks.push({ k: 'num', v });
+      toks.push({ k: 'num', v, i, j });
       i = j;
       continue;
     }
     if (isName(c)) {
       let j = i;
       while (j < src.length && /[a-zA-Z_0-9]/.test(src[j])) j++;
-      toks.push({ k: 'name', v: src.slice(i, j) });
+      toks.push({ k: 'name', v: src.slice(i, j), i, j });
       i = j;
       continue;
     }
     if ('+-*/%^(),'.includes(c)) {
-      toks.push({ k: 'op', v: c });
+      toks.push({ k: 'op', v: c, i, j: i + 1 });
       i++;
       continue;
     }
@@ -195,7 +213,13 @@ class Parser {
         while (this.eat(',')) args.push(this.expr(d + 1));
       }
       if (!this.eat(')')) throw new Error(`${t.v}( needs a ) to close it`);
-      if (args.length !== fn.arity) throw new Error(`${t.v} takes ${fn.arity} ${fn.arity === 1 ? 'value' : 'values'}`);
+      if (args.length < fn.minArgs || args.length > fn.maxArgs) {
+        const takes =
+          fn.minArgs === fn.maxArgs
+            ? `${fn.minArgs} ${fn.minArgs === 1 ? 'value' : 'values'}`
+            : `${fn.minArgs} to ${fn.maxArgs} values`;
+        throw new Error(`${t.v} takes ${takes}`);
+      }
       return { t: 'call', f: t.v, args };
     }
     if (this.eat('(')) {
@@ -253,12 +277,16 @@ function build(n: Node): ExprFn {
       const args = n.args.map(build);
       if (args.length === 1) {
         const a = args[0];
-        return (x) => fn.call(a(x), 0);
+        return (x) => fn.call(a(x));
       }
-      const [a, b] = args;
-      return (x) => fn.call(a(x), b(x));
+      return (x) => fn.call(...args.map((g) => g(x)));
     }
   }
+}
+
+/** Parses to the tree, throwing the same errors compileExpr reports. */
+export function parseExpr(source: string): Node {
+  return new Parser(lex(source)).parse();
 }
 
 /** Compiles "sin(x) + 1" into a function of x, or says why it can't be read. */
@@ -266,11 +294,44 @@ export function compileExpr(source: string): CompiledExpr {
   if (source.trim().length === 0) return { fn: null, error: 'write a function of x, like sin(x)' };
   if (source.length > MAX_EXPR_CHARS) return { fn: null, error: `expressions are capped at ${MAX_EXPR_CHARS} characters` };
   try {
-    const node = new Parser(lex(source)).parse();
+    const node = parseExpr(source);
     return { fn: build(node), error: null };
   } catch (err) {
     return { fn: null, error: err instanceof Error ? err.message : "can't read that expression" };
   }
+}
+
+export interface AdditiveTerm {
+  /** The +/- that joined this term to the one before it; '+' on the first. */
+  sign: '+' | '-';
+  /** The term's own source, its leading unary signs included, joiner excluded. */
+  text: string;
+}
+
+/**
+ * The expression's top-level +/- terms, cut where a plus or minus binds
+ * loosest — outside every bracket, and binary (a value ends just before it,
+ * so the minus in "sin(-x)" and the one in "x^-2" stay inside their terms).
+ * Terms joined back with their signs read as the same function.
+ */
+export function additiveTerms(src: string): AdditiveTerm[] {
+  const toks = lex(src);
+  const terms: AdditiveTerm[] = [];
+  let depth = 0;
+  let sign: '+' | '-' = '+';
+  let start = 0;
+  let valueBefore = false;
+  for (const t of toks) {
+    if (t.k === 'op' && (t.v === '(' || t.v === ')')) depth += t.v === '(' ? 1 : -1;
+    if (t.k === 'op' && (t.v === '+' || t.v === '-') && depth === 0 && valueBefore) {
+      terms.push({ sign, text: src.slice(start, t.i).trim() });
+      sign = t.v;
+      start = t.j;
+    }
+    valueBefore = t.k !== 'op' || t.v === ')';
+  }
+  terms.push({ sign, text: src.slice(start).trim() });
+  return terms;
 }
 
 /** The functions and constants on offer, for the page's reference. */

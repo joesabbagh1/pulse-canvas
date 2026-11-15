@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { compileExpr } from './fexpr';
+import { additiveTerms, compileExpr } from './fexpr';
 
 const at = (src: string, x = 0) => {
   const got = compileExpr(src);
@@ -79,6 +79,28 @@ describe('compileExpr', () => {
     expect(Number.isNaN(at('sqrt(x - 4)', 0))).toBe(true);
   });
 
+  it('spreads curve() knots smoothly over its window, flat past the ends', () => {
+    const f = compileExpr('curve(x, 0, 3, 0, 3, 0)').fn!;
+    expect(f(0)).toBe(0);
+    expect(f(1.5)).toBe(3); // the middle knot, held exactly
+    expect(f(0.75)).toBeCloseTo(1.5, 6); // halfway between knots, cosine mid
+    expect(f(3)).toBe(0);
+    // Quarter of the way between knots: (1 − cos(π/4))/2 of the rise.
+    expect(f(0.375)).toBeCloseTo(3 * (1 - Math.cos(Math.PI * 0.25)) / 2, 6);
+    // Past either end it holds the last knot.
+    expect(f(-2)).toBe(0);
+    expect(f(9)).toBe(0);
+    // Knots compose with the rest of the language.
+    expect(at('curve(x, 0, 2, 1, 1) + x', 1)).toBeCloseTo(2, 6);
+  });
+
+  it('checks the count curve() is given', () => {
+    expect(error('curve(x, 0)')).toContain('curve takes 5 to 17');
+    expect(error('curve(x, 0, 1, 2)')).toContain('curve takes 5 to 17');
+    expect(error(`curve(x, 0, 1, ${Array.from({ length: 15 }, () => '1').join(',')})`)).toContain('curve takes 5 to 17');
+    expect(compileExpr(`curve(x, 0, 1, ${Array.from({ length: 14 }, () => '1').join(',')})`).error).toBeNull();
+  });
+
   it('refuses what it cannot read', () => {
     expect(error('')).toBeTruthy();
     expect(error('   ')).toBeTruthy();
@@ -97,5 +119,40 @@ describe('compileExpr', () => {
 
   it('stops runaway nesting before the stack does', () => {
     expect(error('('.repeat(40) + 'x' + ')'.repeat(40))).toContain('nested');
+  });
+});
+
+describe('additiveTerms', () => {
+  const texts = (src: string) => additiveTerms(src).map((t) => `${t.sign}${t.text}`);
+
+  it('cuts the top-level terms where + and - bind loosest', () => {
+    expect(texts('sin(x) + cos(x) - tan(x)')).toEqual(['+sin(x)', '+cos(x)', '-tan(x)']);
+    expect(additiveTerms('x').map((t) => `${t.sign}${t.text}`)).toEqual(['+x']);
+    expect(texts('')).toEqual(['+']);
+    expect(texts('   x  ')).toEqual(['+x']);
+  });
+
+  it('keeps a minus that binds tight inside its term', () => {
+    // The power's minus, a call's minus, and a unary lead all stay put.
+    expect(texts('x^-2 + sin(-x) - 3')).toEqual(['+x^-2', '+sin(-x)', '-3']);
+    expect(texts('-sin(x) - x')).toEqual(['+-sin(x)', '-x']);
+    expect(texts('x-2')).toEqual(['+x', '-2']);
+    expect(texts('x - -2')).toEqual(['+x', '--2']);
+  });
+
+  it('ignores signs inside brackets and after commas', () => {
+    expect(texts('min(x-1, y+2) + curve(x,0,1,1,1)')).toEqual(['+min(x-1, y+2)', '+curve(x,0,1,1,1)']);
+    expect(texts('(x+1)(x-1)')).toEqual(['+(x+1)(x-1)']);
+    expect(texts('exp(x)-x')).toEqual(['+exp(x)', '-x']);
+    // Nested brackets reset, and a term can pick up after them.
+    expect(texts('sin((x+1)) - cos(x)')).toEqual(['+sin((x+1))', '-cos(x)']);
+  });
+
+  it('joins back to the same function', () => {
+    for (const src of ['sin(x) + cos(x) - tan(x)', 'x-2', '(x+1)(x-1)', 'min(x-1, 2) - 3x', '-sin(x) - x']) {
+      const terms = additiveTerms(src);
+      const joined = terms.map((t, i) => (i === 0 ? t.text : `${t.sign}${t.text}`)).join('');
+      expect(at(joined, 1.3)).toBeCloseTo(at(src, 1.3), 12);
+    }
   });
 });

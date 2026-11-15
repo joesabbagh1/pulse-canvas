@@ -23,6 +23,7 @@ import { setMachines } from './engine/instruments';
 import { DEFAULT_PATCH, machineInstrument, machineShort, PRESETS, type SynthMachine } from './engine/synth';
 import { ExamplesPage } from './ExamplesPage';
 import { GraphPage } from './GraphPage';
+import { VizPage } from './VizPage';
 import { InstrumentsPage } from './InstrumentsPage';
 import { SynthPage } from './SynthPage';
 import { DEFAULT_GRAPH, DEFAULT_BLOCK_GRAPH, MAX_CURVES, clampGraph, type BlockGraph, type GraphCurve, type GraphSpec } from './engine/graph';
@@ -865,10 +866,10 @@ function Studio() {
   }, [route, routeCanvasId, canvasId, canvases]);
 
   // Another page can't hear the piece, so leaving the canvas stops it rather
-  // than play to an empty room. Waves is the same canvas, and the graph rides
-  // the transport, so playing carries across both of those tabs.
+  // than play to an empty room. Waves is the same canvas, and the graph and
+  // viz ride the transport, so playing carries across those tabs.
   useEffect(() => {
-    if (route === 'canvas' || route === 'waves' || route === 'graph' || !engine.playing) return;
+    if (route === 'canvas' || route === 'waves' || route === 'graph' || route === 'viz' || !engine.playing) return;
     engine.stop();
     setPlaying(false);
   }, [route, engine]);
@@ -1647,6 +1648,7 @@ function Studio() {
               onSend={placeGraph}
             />
           )}
+          {route === 'viz' && <VizPage engine={engine} bpm={bpm} playing={playing} />}
         </div>
         <ToastHost />
         <ConfirmHost />

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import type { Engine } from './engine/engine';
 import {
   MAX_CURVES,
@@ -10,6 +10,7 @@ import {
   type GraphCurve,
   type GraphSpec,
 } from './engine/graph';
+import { beginBend, bendText, type BendSession } from './engine/bend';
 import { MAX_SPAN } from './engine/geometry';
 import type { BlockKind } from './engine/scheduler';
 import { describePitch, type Scale } from './engine/tuning';
@@ -49,6 +50,10 @@ interface FlashNote {
   x: number;
   y: number;
 }
+
+// The plot's margins, shared by the drawing and the bending so both agree on
+// where a pointer lands in math.
+const PAD = { l: 44, r: 52, t: 12, b: 24 };
 
 // Windows of notes are scheduled a quarter second of audio ahead, so a
 // background tab (or a slow frame) can't leave a gap in the sweep.
@@ -147,6 +152,86 @@ export function GraphPage({
     return () => window.clearInterval(id);
   }, [graph, playing, curves, engine, scale, rootHz]);
 
+  // Bending: press a curve and pull — one gaussian term is added to its
+  // expression, centred where you pressed. The function itself is what
+  // changes, and only near the press; the old curve shows as a ghost, and the
+  // band shows how far the bend reaches.
+  const bendRef = useRef<BendSession | null>(null);
+  const bendCurveRef = useRef<number | null>(null);
+
+  /** The pointer's place in math, plus where a math y lands on the canvas. */
+  const pointerMath = (clientX: number, clientY: number) => {
+    const canvas = canvasRef.current!;
+    const rect = canvas.getBoundingClientRect();
+    const sx = clientX - rect.left;
+    const sy = clientY - rect.top;
+    const plotW = Math.max(1, rect.width - PAD.l - PAD.r);
+    const plotH = Math.max(1, rect.height - PAD.t - PAD.b);
+    const spanY = graph.y1 - graph.y0;
+    return {
+      x: graph.x0 + ((sx - PAD.l) / plotW) * (graph.x1 - graph.x0),
+      y: graph.y1 - ((sy - PAD.t) / plotH) * spanY,
+      sy,
+      screenYOf: (y: number) => PAD.t + ((graph.y1 - y) / spanY) * plotH,
+    };
+  };
+
+  /** The curve under the pointer, the selected one winning ties, or -1. */
+  const curveUnder = (p: ReturnType<typeof pointerMath>): number => {
+    let best = -1;
+    let bestDist = 12;
+    for (const { fn, index } of curves) {
+      const yv = fn(p.x);
+      if (!Number.isFinite(yv)) continue;
+      const weighted = Math.abs(p.screenYOf(yv) - p.sy) * (graph.curves[index]?.id === selectedId ? 0.75 : 1);
+      if (weighted < bestDist) {
+        bestDist = weighted;
+        best = index;
+      }
+    }
+    return best;
+  };
+
+  const bendTo = (y: number) => {
+    const bend = bendRef.current;
+    if (!bend) return;
+    const text = bendText(bend, y);
+    const index = bendCurveRef.current;
+    const curve = index === null ? undefined : graph.curves[index];
+    if (text && curve) onCurve(curve.id, { expr: text });
+  };
+
+  const onPlotPointerDown = (e: ReactPointerEvent<HTMLCanvasElement>) => {
+    if (e.button !== 0) return;
+    const p = pointerMath(e.clientX, e.clientY);
+    const hit = curveUnder(p);
+    if (hit < 0) return;
+    const owner = graph.curves[hit];
+    const bend = owner ? beginBend(owner.expr, p.x, graph.x1 - graph.x0) : null;
+    if (!bend) return;
+    bendRef.current = bend;
+    bendCurveRef.current = hit;
+    setSelectedId(owner.id);
+    e.currentTarget.setPointerCapture(e.pointerId);
+    bendTo(p.y);
+  };
+
+  const onPlotPointerMove = (e: ReactPointerEvent<HTMLCanvasElement>) => {
+    if (bendRef.current) {
+      bendTo(pointerMath(e.clientX, e.clientY).y);
+      return;
+    }
+    const over = curveUnder(pointerMath(e.clientX, e.clientY)) >= 0;
+    e.currentTarget.style.cursor = over ? 'grab' : 'crosshair';
+  };
+
+  const onPlotPointerEnd = (e: ReactPointerEvent<HTMLCanvasElement>) => {
+    if (!bendRef.current) return;
+    bendRef.current = null;
+    bendCurveRef.current = null;
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
+  };
+
   // The plot: drawn every animation frame at the position implied by the
   // audio clock. Drawing never drives timing; it only shows where the sweep is.
   useEffect(() => {
@@ -170,10 +255,10 @@ export function GraphPage({
       if (!w || !h) return;
 
       const { x0, x1, y0, y1, baseDegree, spanDegrees } = graph;
-      const padL = 44;
-      const padR = 52;
-      const padT = 12;
-      const padB = 24;
+      const padL = PAD.l;
+      const padR = PAD.r;
+      const padT = PAD.t;
+      const padB = PAD.b;
       const plotW = Math.max(1, w - padL - padR);
       const plotH = Math.max(1, h - padT - padB);
       const px = (x: number) => padL + ((x - x0) / (x1 - x0)) * plotW;
@@ -283,6 +368,42 @@ export function GraphPage({
         }
         ctx.stroke();
         ctx.setLineDash([]);
+      }
+
+      // While a bend is under way: the curve as the drag found it, as a ghost,
+      // and a band over how far the bend reaches from the press.
+      const bend = bendRef.current;
+      if (bend && bendCurveRef.current === selectedIdx) {
+        const c = bend.center;
+        const w = bend.width;
+        ctx.fillStyle = `rgb(${ink} / 0.05)`;
+        ctx.fillRect(px(c - 2 * w), padT, 4 * w * plotW / (x1 - x0), plotH);
+        ctx.strokeStyle = `rgb(${ink} / 0.55)`;
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([2, 4]);
+        ctx.beginPath();
+        let pen = false;
+        for (let sx = padL; sx <= padL + plotW; sx += 2) {
+          const xv = x0 + ((sx - padL) / plotW) * (x1 - x0);
+          const yv = bend.before(xv);
+          if (Number.isFinite(yv) && yv >= y0 && yv <= y1) {
+            if (pen) ctx.lineTo(sx, py(yv));
+            else ctx.moveTo(sx, py(yv));
+            pen = true;
+          } else {
+            pen = false;
+          }
+        }
+        ctx.stroke();
+        ctx.setLineDash([]);
+        // The press itself, where the bend is pinned.
+        const yv = bend.before(c);
+        if (Number.isFinite(yv) && yv >= y0 && yv <= y1) {
+          ctx.fillStyle = `rgb(${ink} / 0.9)`;
+          ctx.beginPath();
+          ctx.arc(px(c), py(yv), 3, 0, Math.PI * 2);
+          ctx.fill();
+        }
       }
 
       if (running) {
@@ -418,6 +539,7 @@ export function GraphPage({
           </div>
           <p className="muted">
             Write any function of x: + - * / % ^, sin cos tan, floor abs sqrt min max mod, pi e. Neighbours multiply: 3sin(x).
+            Drag a curve to bend it where you pressed — the expression gains a gaussian term there.
           </p>
         </section>
       </aside>
@@ -440,7 +562,17 @@ export function GraphPage({
         </header>
 
         <div className="graph-plot-wrap">
-          <canvas ref={canvasRef} className="graph-plot" role="img" aria-label="The curves on the window, swept by the pulse" />
+          <canvas
+            ref={canvasRef}
+            className="graph-plot"
+            role="img"
+            aria-label="The curves on the window, swept by the pulse. Drag a curve to bend it."
+            style={{ cursor: 'crosshair' }}
+            onPointerDown={onPlotPointerDown}
+            onPointerMove={onPlotPointerMove}
+            onPointerUp={onPlotPointerEnd}
+            onPointerCancel={onPlotPointerEnd}
+          />
         </div>
 
         <div className="graph-config" aria-label="Graph settings">

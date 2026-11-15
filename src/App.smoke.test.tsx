@@ -187,6 +187,27 @@ describe('App', () => {
     act(() => root.unmount());
   });
 
+  it('opens the viz stage from the canvas bar and comes back', async () => {
+    const { host, root } = await mount();
+    await act(async () => void host.querySelector('a.tab[href="#/viz"]')!.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true })));
+    await act(() => new Promise((r) => setTimeout(r, 10)));
+    // The stage replaces the workspace, but the bar is still this canvas's:
+    // its name, its tabs with Viz active, and the shared transport.
+    expect(host.querySelector('.viz-stage')).not.toBeNull();
+    expect(host.querySelector('header.app-bar')!.classList.contains('is-canvas')).toBe(true);
+    expect(host.querySelector('a.tab.is-active')!.textContent).toBe('Viz');
+    expect(host.querySelector('.canvas-bar-name')).not.toBeNull();
+    expect(host.querySelector('button.play')).not.toBeNull();
+    // The Canvas tab carries the open canvas's id, so it restores the piece.
+    await act(async () =>
+      void host.querySelector('a.tab[href^="#/canvas/"]')!.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true })),
+    );
+    await act(() => new Promise((r) => setTimeout(r, 10)));
+    expect(host.querySelector('.viz-stage')).toBeNull();
+    expect(host.querySelector('a.tab.is-active')!.textContent).toBe('Canvas');
+    act(() => root.unmount());
+  });
+
   it('pulling a link out bends it, and the bend is saved', async () => {
     const { host, root } = await mount();
     const edge = () => host.querySelector('.react-flow__edge[data-id="mel-1>bass"]')!;

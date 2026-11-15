@@ -10,14 +10,18 @@ const APP_TABS: { route: Route; label: string }[] = [
   { route: 'instruments', label: 'Instruments' },
   { route: 'synth', label: 'Synth' },
   { route: 'graph', label: 'Graph' },
+  { route: 'viz', label: 'Viz' },
 ];
 
 const CANVAS_TABS: { route: Route; label: string }[] = [
   { route: 'canvas', label: 'Canvas' },
   { route: 'waves', label: 'Waves' },
+  { route: 'viz', label: 'Viz' },
 ];
 
-const insideCanvas = (route: Route) => route === 'canvas' || route === 'waves';
+// Viz counts as inside: it is one of the views of the open canvas, so its bar
+// keeps the canvas's name and links, and playback carries over.
+const insideCanvas = (route: Route) => route === 'canvas' || route === 'waves' || route === 'viz';
 
 /** m:ss */
 export const clockTime = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`;
@@ -67,12 +71,12 @@ interface Props {
 }
 
 // Outside a canvas this is the app nav. Inside, it is that canvas's bar:
-// back to the list, which view (notes or waves), and the controls for it.
+// back to the list, which view (notes, waves or viz), and the controls for it.
 export function TopBar(props: Props) {
   const { route, canvasId, canvasName, playing, recording, recordedSeconds, bpm, snap, canUndo, canRedo, fileMenu } = props;
   const inside = insideCanvas(route);
   // The graph page rides the piece's transport, so its play, tempo and
-  // recording belong there too.
+  // recording belong there too; the viz stage gets them by being inside.
   const hears = inside || route === 'graph';
   const [theme, setTheme] = useTheme();
   const tabs = useRef<HTMLElement>(null);

@@ -5,6 +5,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { GraphPage } from './GraphPage';
 import { Engine } from './engine/engine';
 import { clampGraph, DEFAULT_GRAPH, type BlockGraph, type GraphCurve, type GraphSpec } from './engine/graph';
+import { compileExpr } from './engine/fexpr';
 import { SCALES } from './engine/tuning';
 
 beforeAll(() => {
@@ -159,6 +160,36 @@ describe('graph page', () => {
     const field = host.querySelector<HTMLInputElement>('input[aria-label="x to"]')!;
     await setNumber(field, '24');
     expect(page.calls.graphs.at(-1)).toEqual({ x1: 24 });
+  });
+
+  it('bends where you press, writing a gaussian term into the expression', async () => {
+    const engine = new Engine();
+    const page = await mountPage(DEFAULT_GRAPH, false, engine);
+    ({ host, root } = page);
+    const canvas = host.querySelector('canvas')!;
+    canvas.getBoundingClientRect = () =>
+      ({ left: 0, top: 0, width: 800, height: 400, right: 800, bottom: 400, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+    canvas.setPointerCapture = () => {};
+    canvas.hasPointerCapture = () => false;
+    canvas.releasePointerCapture = () => {};
+    // The plot maps x∈[0,16], y∈[-1.2,1.2] with the page's pads 44/52/12/24.
+    const px = (x: number) => 44 + (x / 16) * (800 - 44 - 52);
+    const py = (y: number) => 12 + ((1.2 - y) / 2.4) * (400 - 12 - 24);
+    const gesture = (type: string, x: number, y: number) =>
+      act(async () => {
+        canvas.dispatchEvent(new MouseEvent(type, { bubbles: true, button: 0, clientX: px(x), clientY: py(y) }));
+      });
+    // Press on sin(x) at x=8 (sin 8 ≈ .989) and pull it down to about -0.04.
+    await gesture('pointerdown', 8, Math.sin(8));
+    await gesture('pointermove', 8, -0.03956);
+    await gesture('pointerup', 8, -0.03956);
+    const patch = page.calls.curveEdits.at(-1)![1];
+    // The expression gains one gaussian term; the function itself stands.
+    expect(patch.expr).toBe('sin(x)-1.03exp(-((x-8)/1)^2)');
+    const f = compileExpr(patch.expr!).fn!;
+    expect(f(0)).toBeCloseTo(0, 6);
+    expect(f(8)).toBeCloseTo(-0.03956, 2);
+    expect(f(16)).toBeCloseTo(Math.sin(16), 6);
   });
 
   it('adds and removes curves through the callbacks', async () => {

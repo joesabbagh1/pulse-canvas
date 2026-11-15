@@ -4332,6 +4332,16 @@ input.canvas-name:hover {
   opacity: 0.85;
 }
 
+/* While a bend is under way: the curve as the drag found it. */
+.graph-bend-ghost {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.25;
+  stroke-linejoin: round;
+  stroke-dasharray: 2 4;
+  opacity: 0.4;
+}
+
 .graph-mark {
   opacity: 0.9;
 }
@@ -4356,4 +4366,134 @@ input.canvas-name:hover {
 .graph-block-fields input[type='number']:focus {
   outline: none;
   box-shadow: 0 0 0 2px var(--ink);
+}
+
+/* Bending: the plot and the box strip take the pointer for the drag. */
+.graph-plot,
+.graph-strip {
+  touch-action: none;
+}
+
+/* ---------- viz stage ---------- */
+
+/* The stage always plays on black, whatever the theme: visuals are drawn in
+   light on darkness, and the page's own trails depend on it. */
+.page.is-viz {
+  overflow: hidden;
+  background: #000;
+}
+
+.viz-stage {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  background: #000;
+}
+
+.viz-status {
+  position: absolute;
+  top: 14px;
+  left: 18px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 60%;
+  font-size: 12px;
+  color: rgb(250 250 250 / 0.45);
+  pointer-events: none;
+}
+
+.viz-live {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: rgb(250 250 250 / 0.25);
+  flex: none;
+}
+
+.viz-live.is-on {
+  background: var(--ok);
+  box-shadow: 0 0 8px rgb(95 211 168 / 0.8);
+  animation: viz-breathe 1.6s ease-in-out infinite;
+}
+
+@keyframes viz-breathe {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+.viz-status-sep {
+  color: rgb(250 250 250 / 0.25);
+}
+
+.viz-chrome {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  justify-content: center;
+  padding: 16px;
+  pointer-events: none;
+}
+
+.viz-chips {
+  display: flex;
+  gap: 4px;
+  padding: 5px;
+  border-radius: 999px;
+  background: rgb(8 8 8 / 0.6);
+  border: 1px solid rgb(255 255 255 / 0.12);
+  backdrop-filter: blur(10px);
+  pointer-events: auto;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.viz-chip {
+  appearance: none;
+  border: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: transparent;
+  color: rgb(250 250 250 / 0.6);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--t) var(--ease), color var(--t) var(--ease);
+}
+
+.viz-chip:hover {
+  color: rgb(250 250 250 / 0.9);
+  background: rgb(255 255 255 / 0.08);
+}
+
+.viz-chip.is-active {
+  color: #fff;
+  background: rgb(255 255 255 / 0.16);
+}
+
+.viz-chip-key {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  background: rgb(255 255 255 / 0.1);
+  font-size: 10px;
+  font-family: var(--mono);
+  color: rgb(250 250 250 / 0.55);
+}
+
+.viz-chip.is-active .viz-chip-key {
+  color: #fff;
+  background: rgb(255 255 255 / 0.22);
 }

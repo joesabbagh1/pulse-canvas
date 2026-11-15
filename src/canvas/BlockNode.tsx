@@ -1,7 +1,8 @@
 import { Handle, Position, useReactFlow, type NodeProps } from '@xyflow/react';
-import { memo, useMemo, useSyncExternalStore, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
+import { memo, useMemo, useRef, useSyncExternalStore, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { BOX_HEIGHT, GRID, MAX_SPAN, MIN_SPAN, PX_PER_BEAT, formatBeats, patternFrame, spanOf } from '../engine/geometry';
 import { blockGraphNotes, compileCurves, DEFAULT_BLOCK_GRAPH, xAt } from '../engine/graph';
+import { beginBend, bendText, type BendSession } from '../engine/bend';
 import { instrumentById } from '../engine/instruments';
 import { PatternFigure, scaleSteps } from './figures';
 import { livePass, subscribeLive } from './livePass';
@@ -204,7 +205,7 @@ function GraphBox({ id, data, selected }: NodeProps<BlockNode>) {
 
   // Each curve's polyline in strip units, in runs: a y outside the window
   // breaks the line, the way the page's plot lifts its pen.
-  const polylines = curves.map(({ fn }) => {
+  const stripRuns = (fn: (x: number) => number): [number, number][][] => {
     const runs: [number, number][][] = [];
     let pts: [number, number][] | null = null;
     const N = 64;
@@ -222,7 +223,8 @@ function GraphBox({ id, data, selected }: NodeProps<BlockNode>) {
     }
     if (pts) runs.push(pts);
     return runs;
-  });
+  };
+  const polylines = curves.map(({ fn }) => stripRuns(fn));
 
   // One mark per note, thinned when the grid is dense, so the flash rings have
   // somewhere to land — the same contract the figures' notes carry.
@@ -247,6 +249,83 @@ function GraphBox({ id, data, selected }: NodeProps<BlockNode>) {
   // The pitch rows: one line per scale degree the window is tall, thinned.
   const rowPx = stripH / Math.max(1, graph.spanDegrees);
   const rowStride = rowPx >= 5 ? 1 : Math.ceil(5 / rowPx);
+
+  // Bending on the box itself: press a curve and drag; a gaussian term joins
+  // its expression, centred where you pressed, and a playing sweep retunes
+  // within a window. A bend takes the pointer for itself, so the box stays put.
+  const bendRef = useRef<BendSession | null>(null);
+  const bendCurveRef = useRef<number | null>(null);
+
+  const stripMath = (e: ReactPointerEvent<SVGSVGElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    return {
+      u: ((e.clientX - rect.left) / rect.width) * stripW,
+      uy: ((e.clientY - rect.top) / rect.height) * stripH,
+    };
+  };
+
+  const curveNear = (u: number, uy: number): number => {
+    const xv = graph.x0 + (u / stripW) * (graph.x1 - graph.x0);
+    let best = -1;
+    let bestDist = 9;
+    for (const { fn, index } of curves) {
+      const yv = fn(xv);
+      if (!Number.isFinite(yv)) continue;
+      const dist = Math.abs(yToU(yv) - uy);
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = index;
+      }
+    }
+    return best;
+  };
+
+  const bendTo = (uy: number) => {
+    const bend = bendRef.current;
+    if (!bend) return;
+    const text = bendText(bend, graph.y1 - (uy / stripH) * (graph.y1 - graph.y0));
+    const index = bendCurveRef.current;
+    if (!text || index === null) return;
+    updateNodeData(id, {
+      graph: {
+        ...graph,
+        curves: graph.curves.map((curve, i) => (i === index ? { ...curve, expr: text } : curve)),
+      },
+    });
+  };
+
+  const onStripPointerDown = (e: ReactPointerEvent<SVGSVGElement>) => {
+    if (e.button !== 0) return;
+    const { u, uy } = stripMath(e);
+    const hit = curveNear(u, uy);
+    if (hit < 0) return;
+    const owner = graph.curves[hit];
+    const xv = graph.x0 + (u / stripW) * (graph.x1 - graph.x0);
+    const bend = owner ? beginBend(owner.expr, xv, graph.x1 - graph.x0) : null;
+    if (!bend) return;
+    e.stopPropagation();
+    e.preventDefault();
+    bendRef.current = bend;
+    bendCurveRef.current = hit;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    bendTo(uy);
+  };
+
+  const onStripPointerMove = (e: ReactPointerEvent<SVGSVGElement>) => {
+    if (bendRef.current) {
+      bendTo(stripMath(e).uy);
+      return;
+    }
+    const { u, uy } = stripMath(e);
+    e.currentTarget.style.cursor = curveNear(u, uy) >= 0 ? 'grab' : '';
+  };
+
+  const onStripPointerEnd = (e: ReactPointerEvent<SVGSVGElement>) => {
+    if (!bendRef.current) return;
+    bendRef.current = null;
+    bendCurveRef.current = null;
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
+  };
 
   return (
     <div
@@ -293,7 +372,18 @@ function GraphBox({ id, data, selected }: NodeProps<BlockNode>) {
           {formatBeats(span, true)}
         </span>
       </div>
-      <svg className="box-strip graph-strip" width={stripW} height={stripH} viewBox={`0 0 ${stripW} ${stripH}`} data-w={stripW} data-h={stripH}>
+      <svg
+        className="box-strip graph-strip"
+        width={stripW}
+        height={stripH}
+        viewBox={`0 0 ${stripW} ${stripH}`}
+        data-w={stripW}
+        data-h={stripH}
+        onPointerDown={onStripPointerDown}
+        onPointerMove={onStripPointerMove}
+        onPointerUp={onStripPointerEnd}
+        onPointerCancel={onStripPointerEnd}
+      >
         {Array.from({ length: Math.floor(graph.spanDegrees / rowStride) + 1 }, (_, i) => graph.baseDegree + i * rowStride)
           .filter((degree) => degree <= graph.baseDegree + graph.spanDegrees)
           .map((degree) => {
@@ -311,6 +401,15 @@ function GraphBox({ id, data, selected }: NodeProps<BlockNode>) {
             />
           )),
         )}
+        {/* While a bend is under way: the curve as the drag found it, dashed. */}
+        {(() => {
+          const bend = bendRef.current;
+          const index = bendCurveRef.current;
+          if (!bend || index === null) return null;
+          return stripRuns(bend.before).map((pts, k) => (
+            <path key={`bend-${k}`} className="graph-bend-ghost" d={pts.map(([x, y], j) => `${j === 0 ? 'M' : 'L'}${x},${y}`).join('')} />
+          ));
+        })()}
         {marks.map((mark, i) =>
           mark ? (
             <circle key={i} className="graph-mark" data-at={mark.at} data-span={mark.spanU} cx={mark.x} cy={mark.y} r={2.5} fill={mark.fill} />

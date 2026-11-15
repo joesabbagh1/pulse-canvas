@@ -93,6 +93,10 @@ export function blockGraphNotes(
   return graphNotes({ ...spec, loopBeats: span, run: false }, curves, fromBeat, toBeat);
 }
 
+// Bending lives in bend.ts: dragging a curve adds a gaussian term to its
+// expression, so the function itself is what changes, and only where you
+// pulled.
+
 /** Compiles every curve; the ones that don't read are left out until they do. */
 export function compileCurves(spec: GraphSpec): CurveFn[] {
   const out: CurveFn[] = [];

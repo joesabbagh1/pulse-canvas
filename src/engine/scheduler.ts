@@ -213,6 +213,15 @@ export class Scheduler {
     return this.links.get(id);
   }
 
+  /** Every block and every link, in no particular order — for whole-piece views. */
+  allBlocks() {
+    return [...this.blocks.values()];
+  }
+
+  allLinks() {
+    return [...this.links.values()];
+  }
+
   /** Pulses on links, plus those crossing a pattern block. */
   inFlight() {
     let n = 0;
